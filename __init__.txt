@@ -1,0 +1,11 @@
+# atlas/modules/module019_momentum_decay/__init__.py
+"""
+Module 019
+Momentum Decay
+"""
+
+from .module import MomentumDecayResearch
+
+__all__ = [
+    "MomentumDecayResearch",
+]
