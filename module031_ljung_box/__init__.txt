@@ -1,0 +1,9 @@
+# atlas/modules/module031_ljung_box/__init__.py
+"""
+Module 031
+Ljung-Box Test for Return Dependence
+"""
+
+from .module import LjungBoxResearch
+
+__all__ = ["LjungBoxResearch"]

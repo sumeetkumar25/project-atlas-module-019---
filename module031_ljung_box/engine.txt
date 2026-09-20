@@ -1,0 +1,73 @@
+# atlas/modules/module031_ljung_box/engine.py
+"""
+Module 031 - Ljung-Box Engine
+
+Computes Ljung-Box test for serial correlation in BTC returns.
+
+Uses statsmodels acorr_ljungbox for correct statistical implementation.
+"""
+
+from dataclasses import dataclass, field
+
+import numpy as np
+import pandas as pd
+from statsmodels.stats.diagnostic import acorr_ljungbox
+
+
+# ----------------------------------------------------
+# Result Container
+# ----------------------------------------------------
+
+@dataclass
+class LjungBoxResult:
+    lags: np.ndarray
+    q_statistics: np.ndarray
+    p_values: np.ndarray
+
+    sample_size: int
+    alpha: float
+    max_lag: int
+
+    confidence_level: float = 0.0
+    significant_mask: np.ndarray = field(default=None)
+
+    def __post_init__(self):
+        self.confidence_level = 1.0 - self.alpha
+        if self.significant_mask is None:
+            self.significant_mask = self.p_values < self.alpha
+
+
+# ----------------------------------------------------
+# Ljung-Box Engine
+# ----------------------------------------------------
+
+class LjungBoxEngine:
+
+    def __init__(self, max_lag: int = 40, alpha: float = 0.05):
+        self.max_lag = max_lag
+        self.alpha = alpha
+
+    @staticmethod
+    def compute_log_returns(close: pd.Series) -> pd.Series:
+        returns = np.log(close / close.shift(1))
+        return returns.dropna()
+
+    def compute(self, returns: pd.Series) -> LjungBoxResult:
+        result = acorr_ljungbox(
+            returns,
+            lags=self.max_lag,
+            return_df=True
+        )
+
+        lags = np.arange(1, self.max_lag + 1)
+        q_stats = result["lb_stat"].values
+        p_vals = result["lb_pvalue"].values
+
+        return LjungBoxResult(
+            lags=lags,
+            q_statistics=q_stats,
+            p_values=p_vals,
+            sample_size=len(returns),
+            alpha=self.alpha,
+            max_lag=self.max_lag,
+        )

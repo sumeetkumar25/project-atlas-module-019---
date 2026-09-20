@@ -1,0 +1,117 @@
+# atlas/modules/module030_pacf/module.py
+"""
+Module 030
+Partial Autocorrelation Function (PACF)
+
+Full pipeline: returns → PACF → statistics → validation → export.
+
+FIXED: Removed effect-strength column. Exports significance mask and signal-to-noise.
+"""
+
+from typing import Optional, Dict, Any
+from pathlib import Path
+
+import pandas as pd
+
+from atlas.core.base_research_module import BaseResearchModule
+from atlas.framework.registry import AtlasRegistry
+
+from .engine import PACFEngine
+from .statistics import PACFStatisticsEngine
+from .validator import PACFValidator
+from .report import PACFReport
+
+
+class PACFResearch(BaseResearchModule):
+
+    MODULE_OUTPUT = "module030"
+    METADATA = PACFStatisticsEngine.METADATA
+
+    def __init__(self, registry: Optional[AtlasRegistry] = None):
+
+        super().__init__(
+            module_name="PACF Analysis",
+            module_version="1.0.0",
+        )
+
+        self.registry = registry or AtlasRegistry()
+        self.engine = PACFEngine(max_lag=40)
+        self.stats_engine = PACFStatisticsEngine()
+        self.returns = None
+        self.result_pacf = None
+        self.statistics = None
+
+    def _register_pipeline_steps(self):
+        self.pipeline_steps = [
+            ("returns", self._compute_returns),
+            ("pacf", self._compute_pacf),
+            ("statistics", self._compute_statistics),
+            ("validate", self._validate),
+            ("export", self._export_results),
+        ]
+
+    def _compute_returns(self) -> Dict[str, Any]:
+        self.logger.info("Step 1: Computing log returns")
+        self.returns = PACFEngine.compute_log_returns(self.df["close"])
+        self.logger.metric("Observations", f"{len(self.returns):,}")
+        self.logger.success("Returns computed")
+        return {"return_observations": len(self.returns)}
+
+    def _compute_pacf(self) -> Dict[str, Any]:
+        self.logger.info("Step 2: Computing PACF")
+        self.result_pacf = self.engine.compute(self.returns)
+        self.logger.metric("Lags computed", f"{len(self.result_pacf.coefficients)}")
+        self.logger.metric("Confidence margin", f"{self.result_pacf.confidence_margin:.6f}")
+        self.logger.success("PACF computed")
+        return {}
+
+    def _compute_statistics(self) -> Dict[str, Any]:
+        self.logger.info("Step 3: Computing statistics")
+        self.statistics = self.stats_engine.analyze(self.result_pacf)
+        self.logger.metric("Significant lags", f"{self.statistics.significant_lags}")
+        self.logger.metric("Significant density", f"{self.statistics.significant_density:.3f}")
+        self.logger.metric("Signal-to-noise", f"{self.statistics.signal_to_noise:.2f}")
+        self.logger.success("Statistics computed")
+        return self.stats_engine.summary_dict(self.statistics)
+
+    def _validate(self) -> Dict[str, Any]:
+        self.logger.info("Step 4: Validation")
+        summary_df = self.stats_engine.summary_dataframe(self.statistics)
+        passed = PACFValidator.run_all(self.result_pacf, self.statistics, summary_df)
+        self.logger.success("Validation complete")
+        return {"validation_passed": passed}
+
+    def _export_results(self) -> Dict[str, Any]:
+        self.logger.info("Step 5: Export")
+
+        summary_df = self.stats_engine.summary_dataframe(self.statistics)
+        self.result.artifacts["pacf_statistics"] = summary_df
+
+        report = PACFReport.build(self.result_pacf, self.statistics)
+        self.result.artifacts["pacf_report"] = report
+
+        pacf_df = pd.DataFrame({
+            "lag": self.result_pacf.lags,
+            "coefficient": self.result_pacf.coefficients,
+            "lower_ci": self.result_pacf.lower_ci,
+            "upper_ci": self.result_pacf.upper_ci,
+            "significant": self.result_pacf.significant_mask,
+        })
+        self.result.artifacts["pacf_coefficients"] = pacf_df
+
+        self.logger.metric("Artifacts", f"{len(self.result.artifacts)}")
+        self.logger.success("Export complete")
+        return {"export_status": "complete", "artifact_count": len(self.result.artifacts)}
+
+    def compute(self) -> Dict[str, Any]:
+        self.logger.section("PACF Analysis Pipeline")
+        results = self.execute_pipeline()
+        self.result.status = "completed"
+        self.logger.success("Module 030 complete")
+        return results
+
+    def run(self, filepath: str, output_dir=None):
+        return super().run(filepath, output_dir)
+
+    def run_dataframe(self, df, dataset_id="in_memory", output_dir=None):
+        return super().run_dataframe(df, dataset_id, output_dir)

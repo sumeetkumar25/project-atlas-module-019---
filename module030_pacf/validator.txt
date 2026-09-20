@@ -1,0 +1,142 @@
+# atlas/modules/module030_pacf/validator.py
+"""
+Module 030 - PACF Validator
+
+Validates PACF results and statistics.
+"""
+
+import numpy as np
+import pandas as pd
+
+from .engine import PACFResult
+from .statistics import PACFStatistics
+
+
+class PACFValidator:
+
+    @staticmethod
+    def validate_result(result: PACFResult) -> list:
+        issues = []
+
+        if len(result.coefficients) != result.max_lag + 1:
+            issues.append(f"Coefficients length mismatch: {len(result.coefficients)} != {result.max_lag + 1}")
+
+        if len(result.lags) != result.max_lag + 1:
+            issues.append(f"Lags length mismatch: {len(result.lags)} != {result.max_lag + 1}")
+
+        if len(result.lower_ci) != result.max_lag + 1:
+            issues.append(f"Lower CI length mismatch")
+
+        if len(result.upper_ci) != result.max_lag + 1:
+            issues.append(f"Upper CI length mismatch")
+
+        if not np.isfinite(result.coefficients).all():
+            issues.append("Coefficients contain NaN or Inf")
+
+        if not np.isfinite(result.lower_ci).all():
+            issues.append("Lower CI contains NaN or Inf")
+
+        if not np.isfinite(result.upper_ci).all():
+            issues.append("Upper CI contains NaN or Inf")
+
+        if not (np.abs(result.coefficients) <= 1.0).all():
+            issues.append("Coefficients outside [-1, 1]")
+
+        if abs(result.coefficients[0] - 1.0) > 0.01:
+            issues.append(f"Lag 0 should be 1.0, got {result.coefficients[0]:.4f}")
+
+        if not (result.lower_ci <= result.coefficients).all():
+            issues.append("Lower CI exceeds coefficient")
+
+        if not (result.upper_ci >= result.coefficients).all():
+            issues.append("Upper CI below coefficient")
+
+        if result.sample_size <= 0:
+            issues.append(f"Invalid sample size: {result.sample_size}")
+
+        return issues
+
+    @staticmethod
+    def validate_statistics(stats: PACFStatistics) -> list:
+        issues = []
+
+        if stats.significant_lags < 0:
+            issues.append("Negative significant lags")
+
+        if stats.significant_lags > stats.max_lag:
+            issues.append("Significant lags exceed max_lag")
+
+        if stats.significant_positive + stats.significant_negative != stats.significant_lags:
+            issues.append("Positive + negative != total significant")
+
+        if not (0.0 <= stats.significant_density <= 1.0):
+            issues.append(f"Density outside [0,1]: {stats.significant_density}")
+
+        if stats.max_abs_pacf < 0:
+            issues.append("Negative max_abs_pacf")
+
+        if stats.max_abs_pacf > 1.0:
+            issues.append(f"max_abs_pacf > 1: {stats.max_abs_pacf}")
+
+        return issues
+
+    @staticmethod
+    def validate_dataframe(df: pd.DataFrame) -> list:
+        issues = []
+
+        if df is None or len(df) == 0:
+            issues.append("DataFrame is empty")
+        elif len(df) != 1:
+            issues.append(f"DataFrame should have 1 row, got {len(df)}")
+
+        expected_cols = [
+            "sample_size", "max_lag", "significant_lags",
+            "significant_positive", "significant_negative",
+            "max_abs_pacf", "mean_abs_pacf", "significant_density",
+        ]
+        for col in expected_cols:
+            if col not in df.columns:
+                issues.append(f"Missing column: {col}")
+
+        return issues
+
+    @classmethod
+    def run_all(cls, result: PACFResult, stats: PACFStatistics, df: pd.DataFrame) -> bool:
+        print("\n" + "=" * 60)
+        print("PACF VALIDATION")
+        print("=" * 60)
+
+        all_issues = []
+
+        result_issues = cls.validate_result(result)
+        if result_issues:
+            print("\n  Result issues:")
+            for issue in result_issues:
+                print(f"    ✗ {issue}")
+            all_issues.extend(result_issues)
+        else:
+            print("\n  ✓ PACF result valid")
+
+        stats_issues = cls.validate_statistics(stats)
+        if stats_issues:
+            print("\n  Statistics issues:")
+            for issue in stats_issues:
+                print(f"    ✗ {issue}")
+            all_issues.extend(stats_issues)
+        else:
+            print("  ✓ Statistics valid")
+
+        df_issues = cls.validate_dataframe(df)
+        if df_issues:
+            print("\n  DataFrame issues:")
+            for issue in df_issues:
+                print(f"    ✗ {issue}")
+            all_issues.extend(df_issues)
+        else:
+            print("  ✓ DataFrame valid")
+
+        passed = len(all_issues) == 0
+        print(f"\n  {'✓ All checks passed' if passed else f'✗ {len(all_issues)} issues found'}")
+        print("=" * 60)
+
+        return passed

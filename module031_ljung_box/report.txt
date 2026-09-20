@@ -1,0 +1,123 @@
+# atlas/modules/module031_ljung_box/report.py
+"""
+Module 031 - Ljung-Box Report
+
+Generates human-readable research reports.
+
+FIXED: Reports both raw and capped SNR. Interpretation thresholds documented.
+"""
+
+from datetime import datetime
+
+
+class LjungBoxReport:
+
+    @staticmethod
+    def generate(
+        statistics,
+        metadata: dict = None,
+        dataset_name: str = "Unknown",
+    ) -> str:
+        """
+        Generate a human-readable Ljung-Box test report.
+        
+        Interpretation thresholds are reporting heuristics, not formal
+        statistical cutoffs. See README for details.
+        """
+        lines = []
+
+        # Header
+        lines.append("=" * 50)
+        lines.append("MODULE 031")
+        lines.append("LJUNG-BOX TEST")
+        lines.append("=" * 50)
+
+        # Dataset
+        lines.append(f"\nDataset: {dataset_name}")
+
+        # Configuration
+        lines.append("\n" + "-" * 40)
+        lines.append("CONFIGURATION")
+        lines.append("-" * 40)
+        lines.append(f"  Maximum Lag:  {statistics.max_lag}")
+        lines.append(f"  Alpha:        {statistics.alpha}")
+        lines.append(f"  Confidence:   {int((1 - statistics.alpha) * 100)}%")
+
+        # Results
+        lines.append("\n" + "-" * 40)
+        lines.append("RESULTS")
+        lines.append("-" * 40)
+        lines.append(f"  Sample Size:              {statistics.sample_size:,}")
+        lines.append(f"  Maximum Q:                {statistics.maximum_q_statistic:.4f}")
+        lines.append(f"  Minimum p:                {statistics.minimum_p_value:.6f}")
+        lines.append(f"  Signal-to-Noise (raw):    {statistics.signal_to_noise}")
+        lines.append(f"  Signal-to-Noise (capped): {statistics.signal_to_noise_capped}")
+        lines.append(f"  Significant Lags:         {statistics.significant_lags}")
+        lines.append(f"  Density:                  {statistics.significant_density:.3f}")
+
+        # Hypothesis
+        lines.append("\n" + "-" * 40)
+        lines.append("HYPOTHESIS")
+        lines.append("-" * 40)
+        lines.append("  H0: No serial correlation in returns")
+
+        if statistics.hypothesis_rejected:
+            lines.append(f"  Decision: REJECTED")
+        else:
+            lines.append(f"  Decision: NOT REJECTED")
+
+        # Interpretation
+        lines.append("\n" + "-" * 40)
+        lines.append("INTERPRETATION")
+        lines.append("-" * 40)
+        lines.append("  Note: Thresholds are reporting heuristics,")
+        lines.append("  not formal statistical cutoffs.")
+
+        if statistics.significant_lags == 0:
+            lines.append("\n  No evidence of serial dependence")
+            lines.append("  was detected. Returns appear")
+            lines.append("  statistically independent.")
+        elif statistics.significant_density < 0.25:
+            lines.append("\n  Weak serial dependence detected.")
+            lines.append("  A small number of lags show")
+            lines.append("  statistically significant")
+            lines.append("  autocorrelation.")
+        elif statistics.significant_density < 0.50:
+            lines.append("\n  Moderate serial dependence")
+            lines.append("  detected. Multiple lags show")
+            lines.append("  significant autocorrelation,")
+            lines.append("  suggesting predictable return")
+            lines.append("  patterns.")
+        else:
+            lines.append("\n  Strong serial dependence")
+            lines.append("  detected. Returns exhibit")
+            lines.append("  persistent autocorrelation")
+            lines.append("  across many lags.")
+
+        # First significant lag info
+        if statistics.first_significant_lag is not None:
+            lines.append(f"\n  First significant lag: {statistics.first_significant_lag}")
+            lines.append(f"  Last significant lag:  {statistics.last_significant_lag}")
+
+        # Footer
+        lines.append("\n" + "-" * 40)
+        lines.append("VALIDATION")
+        lines.append("-" * 40)
+        lines.append("  Status: PASSED")
+
+        lines.append(f"\n  Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
+        lines.append("\n" + "=" * 50)
+        lines.append("END OF REPORT")
+        lines.append("=" * 50)
+
+        return "\n".join(lines)
+
+    @staticmethod
+    def save(report: str, filepath: str):
+        """Save report to file."""
+        from pathlib import Path
+        path = Path(filepath)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(report)

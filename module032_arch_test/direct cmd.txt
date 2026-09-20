@@ -1,0 +1,1 @@
+python -m atlas.modules.module032_arch_test.test_module

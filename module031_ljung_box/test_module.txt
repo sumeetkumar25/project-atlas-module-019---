@@ -1,0 +1,216 @@
+# atlas/modules/module031_ljung_box/test_module.py
+"""
+Module 031 - Full Module Test
+
+Validates engine, statistics, validator, report, and full pipeline.
+"""
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
+
+import numpy as np
+import pandas as pd
+
+from atlas.modules.module031_ljung_box.engine import LjungBoxEngine
+from atlas.modules.module031_ljung_box.statistics import LjungBoxStatisticsEngine
+from atlas.modules.module031_ljung_box.validator import run_validation
+from atlas.modules.module031_ljung_box.report import LjungBoxReport
+from atlas.modules.module031_ljung_box.module import LjungBoxResearch
+from atlas.runner import ModuleRunner
+from atlas.framework.registry import AtlasRegistry
+
+
+def test_engine_and_stats():
+    """Test engine and statistics."""
+    print("\n" + "=" * 60)
+    print("TEST 1: Engine & Statistics")
+    print("=" * 60)
+
+    engine = LjungBoxEngine(max_lag=40)
+    stats_engine = LjungBoxStatisticsEngine()
+
+    np.random.seed(42)
+    white_noise = pd.Series(np.random.normal(0, 1, 1000))
+    result = engine.compute(white_noise)
+    stats = stats_engine.analyze(result)
+
+    assert len(result.lags) == 40
+    assert stats.sample_size == 1000
+    assert 0.0 <= stats.significant_density <= 1.0
+
+    print("  ✓ Engine & statistics test passed")
+    return True
+
+
+def test_validator():
+    """Test validator."""
+    print("\n" + "=" * 60)
+    print("TEST 2: Validator")
+    print("=" * 60)
+
+    engine = LjungBoxEngine(max_lag=40)
+    stats_engine = LjungBoxStatisticsEngine()
+
+    np.random.seed(42)
+    white_noise = pd.Series(np.random.normal(0, 1, 1000))
+    result = engine.compute(white_noise)
+    stats = stats_engine.analyze(result)
+
+    lb_df = pd.DataFrame({
+        "lag": result.lags,
+        "q_statistic": result.q_statistics,
+        "p_value": result.p_values,
+        "significant": result.significant_mask,
+    })
+
+    passed = run_validation(result, stats, lb_df)
+    assert passed
+
+    print("  ✓ Validator test passed")
+    return True
+
+
+def test_report():
+    """Test report generation."""
+    print("\n" + "=" * 60)
+    print("TEST 3: Report Generation")
+    print("=" * 60)
+
+    engine = LjungBoxEngine(max_lag=40)
+    stats_engine = LjungBoxStatisticsEngine()
+
+    np.random.seed(42)
+    white_noise = pd.Series(np.random.normal(0, 1, 1000))
+    result = engine.compute(white_noise)
+    stats = stats_engine.analyze(result)
+
+    report = LjungBoxReport.generate(stats, dataset_name="White Noise Test")
+    assert "LJUNG-BOX TEST" in report
+    assert "HYPOTHESIS" in report
+    assert "INTERPRETATION" in report
+
+    report_path = Path("temp/module031_test_report.txt")
+    LjungBoxReport.save(report, str(report_path))
+    assert report_path.exists()
+
+    print("  ✓ Report test passed")
+    return True
+
+
+def test_pipeline():
+    """Test full pipeline."""
+    print("\n" + "=" * 60)
+    print("TEST 4: Full Pipeline")
+    print("=" * 60)
+
+    n = 500
+    np.random.seed(42)
+    close = np.cumsum(np.random.randn(n)) + 100
+    close = np.maximum(close, 1)
+
+    dates = pd.date_range(start="2020-01-01", periods=n, freq="15min")
+    df = pd.DataFrame({
+        "timestamp": dates,
+        "open": close * 0.999,
+        "high": close * 1.002,
+        "low": close * 0.998,
+        "close": close,
+        "volume": np.ones(n) * 100,
+    })
+
+    research = LjungBoxResearch()
+    result = research.run_dataframe(df, dataset_id="pipeline_test")
+
+    assert result.status == "completed"
+    assert "ljung_box_statistics" in result.artifacts
+    assert "ljung_box_results" in result.artifacts
+    assert "ljung_box_report" in result.artifacts
+    assert result.statistics.get("validation_passed") == True
+
+    print("  ✓ Full pipeline test passed")
+    return True
+
+
+def test_btc_data():
+    """Test on BTC datasets."""
+    print("\n" + "=" * 60)
+    print("TEST 5: BTC Data")
+    print("=" * 60)
+
+    datasets = {
+        "BTC_15m": "data/raw/BTCUSD_15m.csv",
+        "BTC_1h": "data/raw/BTCUSD_1h.csv",
+        "BTC_4h": "data/raw/BTCUSD_4h.csv",
+    }
+
+    missing = [name for name, path in datasets.items() if not Path(path).exists()]
+    if missing:
+        print(f"  ⚠ Missing: {missing}")
+        return True
+
+    registry = AtlasRegistry()
+    runner = ModuleRunner(registry=registry)
+
+    results = runner.run_on_datasets(
+        module_class=LjungBoxResearch,
+        datasets=datasets,
+        output_base_dir="outputs/module031",
+        validate_after=False,
+    )
+
+    all_ok = True
+    for name, res in results.items():
+        if res.status == "completed":
+            sig_lags = res.statistics.get("significant_lags", 0)
+            snr = res.statistics.get("signal_to_noise", 0)
+            rejected = res.statistics.get("hypothesis_rejected", False)
+            print(f"\n  {name}:")
+            print(f"    Significant lags: {sig_lags}")
+            print(f"    Signal-to-noise: {snr}")
+            print(f"    H0 rejected: {rejected}")
+            print(f"    ✓ Complete")
+        else:
+            print(f"  ✗ {name}: Failed")
+            all_ok = False
+
+    return all_ok
+
+
+def main():
+    print("\n" + "=" * 70)
+    print("PROJECT ATLAS - MODULE 031 FULL TEST")
+    print("Ljung-Box Test for Return Dependence")
+    print("=" * 70)
+
+    results = {}
+
+    results["engine_stats"] = test_engine_and_stats()
+    results["validator"] = test_validator()
+    results["report"] = test_report()
+    results["pipeline"] = test_pipeline()
+    results["btc"] = test_btc_data()
+
+    print("\n" + "=" * 70)
+    print("RESULTS")
+    print("=" * 70)
+
+    for name, ok in results.items():
+        print(f"  {'✓' if ok else '✗'} {name}")
+
+    passed = sum(results.values())
+    total = len(results)
+
+    print(f"\n  {passed}/{total} tests passed")
+
+    if passed == total:
+        print("\n✓ Module 031 VALIDATED")
+        return 0
+    else:
+        print("\n⚠ Some tests failed")
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

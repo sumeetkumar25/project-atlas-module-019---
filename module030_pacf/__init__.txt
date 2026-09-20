@@ -1,0 +1,9 @@
+# atlas/modules/module030_pacf/__init__.py
+"""
+Module 030
+Partial Autocorrelation Function (PACF)
+"""
+
+from .module import PACFResearch
+
+__all__ = ["PACFResearch"]

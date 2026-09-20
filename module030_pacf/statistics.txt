@@ -1,0 +1,133 @@
+# atlas/modules/module030_pacf/statistics.py
+"""
+Module 030 - PACF Statistics
+
+FIXED: Removed effect-size fields. Added signal-to-noise ratio.
+"""
+
+from dataclasses import dataclass, asdict
+from typing import Optional
+
+import numpy as np
+import pandas as pd
+
+from .engine import PACFResult
+
+
+@dataclass
+class PACFStatistics:
+    sample_size: int
+    max_lag: int
+    alpha: float
+
+    confidence_margin: float
+    signal_to_noise: float
+
+    significant_lags: int
+    significant_positive: int
+    significant_negative: int
+
+    first_significant_lag: Optional[int]
+    last_significant_lag: Optional[int]
+
+    strongest_positive_lag: Optional[int]
+    strongest_negative_lag: Optional[int]
+
+    max_positive_pacf: float
+    max_negative_pacf: float
+    max_abs_pacf: float
+
+    mean_abs_pacf: float
+    median_abs_pacf: float
+    std_abs_pacf: float
+
+    significant_density: float
+
+
+class PACFStatisticsEngine:
+
+    METADATA = {
+        "module": 30,
+        "name": "PACF",
+        "version": "1.0",
+        "algorithm": "Yule-Walker Modified",
+        "alpha": 0.05,
+        "max_lag": 40,
+    }
+
+    def analyze(self, result: PACFResult) -> PACFStatistics:
+
+        mask = result.significant_mask
+        significant_lags = int(mask.sum())
+
+        positive = mask & (result.coefficients > 0)
+        negative = mask & (result.coefficients < 0)
+
+        significant_positive = int(positive.sum())
+        significant_negative = int(negative.sum())
+
+        lags = result.lags[mask]
+        first_significant_lag = None if len(lags) == 0 else int(lags.min())
+        last_significant_lag = None if len(lags) == 0 else int(lags.max())
+
+        pos_coef = np.where(positive, result.coefficients, -np.inf)
+        strongest_positive_lag = None if significant_positive == 0 else int(np.argmax(pos_coef))
+
+        neg_coef = np.where(negative, result.coefficients, np.inf)
+        strongest_negative_lag = None if significant_negative == 0 else int(np.argmin(neg_coef))
+
+        max_positive_pacf = float(np.max(pos_coef)) if significant_positive > 0 else 0.0
+        max_negative_pacf = float(np.min(neg_coef)) if significant_negative > 0 else 0.0
+        max_abs_pacf = float(np.max(np.abs(result.coefficients[1:])))
+
+        abs_coef = np.abs(result.coefficients[1:])
+        mean_abs_pacf = float(abs_coef.mean())
+        median_abs_pacf = float(np.median(abs_coef))
+        std_abs_pacf = float(abs_coef.std(ddof=1))
+
+        significant_density = significant_lags / result.max_lag if result.max_lag > 0 else 0.0
+
+        return PACFStatistics(
+            sample_size=result.sample_size,
+            max_lag=result.max_lag,
+            alpha=result.alpha,
+            confidence_margin=result.confidence_margin,
+            signal_to_noise=result.signal_to_noise,
+            significant_lags=significant_lags,
+            significant_positive=significant_positive,
+            significant_negative=significant_negative,
+            first_significant_lag=first_significant_lag,
+            last_significant_lag=last_significant_lag,
+            strongest_positive_lag=strongest_positive_lag,
+            strongest_negative_lag=strongest_negative_lag,
+            max_positive_pacf=max_positive_pacf,
+            max_negative_pacf=max_negative_pacf,
+            max_abs_pacf=max_abs_pacf,
+            mean_abs_pacf=mean_abs_pacf,
+            median_abs_pacf=median_abs_pacf,
+            std_abs_pacf=std_abs_pacf,
+            significant_density=significant_density,
+        )
+
+    def summary_dataframe(self, stats: PACFStatistics) -> pd.DataFrame:
+        return pd.DataFrame([asdict(stats)])
+
+    def summary_dict(self, stats: PACFStatistics) -> dict:
+        return asdict(stats)
+
+    @staticmethod
+    def cross_dataset_metrics(all_stats: list) -> pd.DataFrame:
+        """Generate cross-dataset comparison metrics with signal-to-noise ratio."""
+        rows = []
+        for name, stats in all_stats:
+            rows.append({
+                "dataset": name,
+                "sample_size": stats.sample_size,
+                "confidence_margin": round(stats.confidence_margin, 6),
+                "signal_to_noise": round(stats.signal_to_noise, 2),
+                "significant_lags": stats.significant_lags,
+                "significant_density": round(stats.significant_density, 4),
+                "max_abs_pacf": round(stats.max_abs_pacf, 4),
+                "mean_abs_pacf": round(stats.mean_abs_pacf, 4),
+            })
+        return pd.DataFrame(rows)

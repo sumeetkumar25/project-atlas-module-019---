@@ -1,0 +1,228 @@
+# atlas/modules/module030_pacf/test_module.py
+"""
+Module 030 - Full Module Test
+
+Validates engine, statistics, validator, report, and full pipeline.
+"""
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
+
+import numpy as np
+import pandas as pd
+
+from atlas.modules.module030_pacf.engine import PACFEngine, PACFResult
+from atlas.modules.module030_pacf.statistics import PACFStatisticsEngine
+from atlas.modules.module030_pacf.validator import PACFValidator
+from atlas.modules.module030_pacf.report import PACFReport
+from atlas.modules.module030_pacf.module import PACFResearch
+from atlas.runner import ModuleRunner
+from atlas.framework.registry import AtlasRegistry
+
+
+def test_engine():
+    """Test the PACF engine."""
+    print("\n" + "=" * 60)
+    print("TEST 1: PACF Engine")
+    print("=" * 60)
+
+    engine = PACFEngine(max_lag=40)
+    np.random.seed(42)
+    white_noise = pd.Series(np.random.normal(0, 1, 1000))
+    result = engine.compute(white_noise)
+
+    assert len(result.coefficients) == 41
+    assert abs(result.coefficients[0] - 1.0) < 0.01
+    assert result.sample_size == 1000
+
+    print("  ✓ Engine test passed")
+    return True
+
+
+def test_statistics():
+    """Test statistics computation."""
+    print("\n" + "=" * 60)
+    print("TEST 2: Statistics Engine")
+    print("=" * 60)
+
+    engine = PACFEngine(max_lag=40)
+    stats_engine = PACFStatisticsEngine()
+    np.random.seed(42)
+    white_noise = pd.Series(np.random.normal(0, 1, 1000))
+    result = engine.compute(white_noise)
+    stats = stats_engine.analyze(result)
+
+    assert stats.sample_size == 1000
+    assert stats.max_lag == 40
+    assert 0.0 <= stats.significant_density <= 1.0
+
+    summary_df = stats_engine.summary_dataframe(stats)
+    assert len(summary_df) == 1
+
+    print(f"  Significant lags: {stats.significant_lags}")
+    print(f"  Density: {stats.significant_density:.3f}")
+    print("  ✓ Statistics test passed")
+    return True
+
+
+def test_validator():
+    """Test PACF validator."""
+    print("\n" + "=" * 60)
+    print("TEST 3: Validator")
+    print("=" * 60)
+
+    engine = PACFEngine(max_lag=40)
+    stats_engine = PACFStatisticsEngine()
+    np.random.seed(42)
+    white_noise = pd.Series(np.random.normal(0, 1, 1000))
+    result = engine.compute(white_noise)
+    stats = stats_engine.analyze(result)
+    summary_df = stats_engine.summary_dataframe(stats)
+
+    passed = PACFValidator.run_all(result, stats, summary_df)
+    assert passed
+
+    print("  ✓ Validator test passed")
+    return True
+
+
+def test_report():
+    """Test report generation."""
+    print("\n" + "=" * 60)
+    print("TEST 4: Report Generation")
+    print("=" * 60)
+
+    engine = PACFEngine(max_lag=40)
+    stats_engine = PACFStatisticsEngine()
+    np.random.seed(42)
+    white_noise = pd.Series(np.random.normal(0, 1, 1000))
+    result = engine.compute(white_noise)
+    stats = stats_engine.analyze(result)
+
+    report = PACFReport.build(result, stats)
+    assert "PROJECT ATLAS" in report
+    assert "INTERPRETATION" in report
+
+    report_path = Path("temp/module030_test_report.txt")
+    PACFReport.save(report, str(report_path))
+    assert report_path.exists()
+
+    print("  ✓ Report test passed")
+    return True
+
+
+def test_pipeline():
+    """Test full module pipeline."""
+    print("\n" + "=" * 60)
+    print("TEST 5: Full Pipeline")
+    print("=" * 60)
+
+    n = 500
+    np.random.seed(42)
+    close = np.cumsum(np.random.randn(n)) + 100
+    close = np.maximum(close, 1)
+
+    dates = pd.date_range(start="2020-01-01", periods=n, freq="15min")
+    df = pd.DataFrame({
+        "timestamp": dates,
+        "open": close * 0.999,
+        "high": close * 1.002,
+        "low": close * 0.998,
+        "close": close,
+        "volume": np.ones(n) * 100,
+    })
+
+    research = PACFResearch()
+    result = research.run_dataframe(df, dataset_id="pipeline_test")
+
+    assert result.status == "completed"
+    assert "pacf_statistics" in result.artifacts
+    assert "pacf_coefficients" in result.artifacts
+    assert result.statistics.get("validation_passed") == True
+
+    print("  ✓ Full pipeline test passed")
+    return True
+
+
+def test_btc_data():
+    """Test on BTC datasets."""
+    print("\n" + "=" * 60)
+    print("TEST 6: BTC Data")
+    print("=" * 60)
+
+    datasets = {
+        "BTC_15m": "data/raw/BTCUSD_15m.csv",
+        "BTC_1h": "data/raw/BTCUSD_1h.csv",
+        "BTC_4h": "data/raw/BTCUSD_4h.csv",
+    }
+
+    missing = [name for name, path in datasets.items() if not Path(path).exists()]
+    if missing:
+        print(f"  ⚠ Missing: {missing}")
+        return True
+
+    registry = AtlasRegistry()
+    runner = ModuleRunner(registry=registry)
+
+    results = runner.run_on_datasets(
+        module_class=PACFResearch,
+        datasets=datasets,
+        output_base_dir="outputs/module030",
+        validate_after=False,
+    )
+
+    all_ok = True
+    for name, res in results.items():
+        if res.status == "completed":
+            sig_lags = res.statistics.get("significant_lags", 0)
+            density = res.statistics.get("significant_density", 0)
+            print(f"\n  {name}:")
+            print(f"    Significant lags: {sig_lags}")
+            print(f"    Density: {density:.3f}")
+            print(f"    ✓ Complete")
+        else:
+            print(f"  ✗ {name}: Failed")
+            all_ok = False
+
+    return all_ok
+
+
+def main():
+    print("\n" + "=" * 70)
+    print("PROJECT ATLAS - MODULE 030 FULL TEST")
+    print("Partial Autocorrelation Function")
+    print("=" * 70)
+
+    results = {}
+
+    results["engine"] = test_engine()
+    results["statistics"] = test_statistics()
+    results["validator"] = test_validator()
+    results["report"] = test_report()
+    results["pipeline"] = test_pipeline()
+    results["btc"] = test_btc_data()
+
+    print("\n" + "=" * 70)
+    print("RESULTS")
+    print("=" * 70)
+
+    for name, ok in results.items():
+        print(f"  {'✓' if ok else '✗'} {name}")
+
+    passed = sum(results.values())
+    total = len(results)
+
+    print(f"\n  {passed}/{total} tests passed")
+
+    if passed == total:
+        print("\n✓ Module 030 VALIDATED")
+        return 0
+    else:
+        print("\n⚠ Some tests failed")
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

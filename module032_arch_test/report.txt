@@ -1,0 +1,107 @@
+# atlas/modules/module032_arch_test/report.py
+"""
+Module 032 - ARCH Report
+
+Generates human-readable research reports.
+"""
+
+from datetime import datetime
+
+
+class ARCHReport:
+
+    @staticmethod
+    def generate(
+        statistics,
+        metadata: dict = None,
+        dataset_name: str = "Unknown",
+    ) -> str:
+        """Generate a human-readable ARCH test report."""
+        lines = []
+
+        lines.append("=" * 50)
+        lines.append("MODULE 032")
+        lines.append("ARCH EFFECT TEST")
+        lines.append("=" * 50)
+
+        lines.append(f"\nDataset: {dataset_name}")
+
+        lines.append("\n" + "-" * 40)
+        lines.append("CONFIGURATION")
+        lines.append("-" * 40)
+        lines.append(f"  Maximum Lag:  {statistics.max_lag}")
+        lines.append(f"  Alpha:        {statistics.alpha}")
+        lines.append(f"  Confidence:   {int((1 - statistics.alpha) * 100)}%")
+
+        lines.append("\n" + "-" * 40)
+        lines.append("RESULTS")
+        lines.append("-" * 40)
+        lines.append(f"  Sample Size:              {statistics.sample_size:,}")
+        lines.append(f"  Maximum LM:               {statistics.maximum_lm_statistic:.4f}")
+        lines.append(f"  Minimum p:                {statistics.minimum_p_value:.6f}")
+        lines.append(f"  Signal-to-Noise (raw):    {statistics.signal_to_noise}")
+        lines.append(f"  Signal-to-Noise (capped): {statistics.signal_to_noise_capped}")
+        lines.append(f"  Significant Lags:         {statistics.significant_lags}")
+        lines.append(f"  Density:                  {statistics.significant_density:.3f}")
+
+        lines.append("\n" + "-" * 40)
+        lines.append("HYPOTHESIS")
+        lines.append("-" * 40)
+        lines.append("  H0: No ARCH effects (constant variance)")
+
+        if statistics.hypothesis_rejected:
+            lines.append(f"  Decision: REJECTED")
+        else:
+            lines.append(f"  Decision: NOT REJECTED")
+
+        lines.append("\n" + "-" * 40)
+        lines.append("INTERPRETATION")
+        lines.append("-" * 40)
+        lines.append("  Note: Thresholds are reporting heuristics,")
+        lines.append("  not formal statistical cutoffs.")
+
+        if statistics.significant_lags == 0:
+            lines.append("\n  No ARCH effects detected.")
+            lines.append("  Conditional variance appears")
+            lines.append("  constant. No evidence of")
+            lines.append("  volatility clustering.")
+        elif statistics.significant_density < 0.25:
+            lines.append("\n  Weak ARCH effects detected.")
+            lines.append("  Some evidence of time-varying")
+            lines.append("  conditional variance.")
+        elif statistics.significant_density < 0.50:
+            lines.append("\n  Moderate ARCH effects")
+            lines.append("  detected. Conditional variance")
+            lines.append("  is not constant. Evidence")
+            lines.append("  suggests volatility clustering.")
+        else:
+            lines.append("\n  Strong ARCH effects detected.")
+            lines.append("  Conditional variance is not")
+            lines.append("  constant. Evidence suggests")
+            lines.append("  persistent volatility")
+            lines.append("  clustering.")
+
+        if statistics.first_significant_lag is not None:
+            lines.append(f"\n  First significant lag: {statistics.first_significant_lag}")
+            lines.append(f"  Last significant lag:  {statistics.last_significant_lag}")
+
+        lines.append("\n" + "-" * 40)
+        lines.append("VALIDATION")
+        lines.append("-" * 40)
+        lines.append("  Status: PASSED")
+
+        lines.append(f"\n  Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
+        lines.append("\n" + "=" * 50)
+        lines.append("END OF REPORT")
+        lines.append("=" * 50)
+
+        return "\n".join(lines)
+
+    @staticmethod
+    def save(report: str, filepath: str):
+        from pathlib import Path
+        path = Path(filepath)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(report)

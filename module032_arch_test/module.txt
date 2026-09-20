@@ -1,0 +1,125 @@
+# atlas/modules/module032_arch_test/module.py
+"""
+Module 032
+ARCH Effect Test for Volatility Clustering
+
+Full pipeline: returns → ARCH → statistics → validation → report → export.
+"""
+
+from typing import Optional, Dict, Any
+
+import pandas as pd
+
+from atlas.core.base_research_module import BaseResearchModule
+from atlas.framework.registry import AtlasRegistry
+
+from .engine import ARCHEngine
+from .statistics import ARCHStatisticsEngine
+from .validator import ARCHValidator, run_validation
+from .report import ARCHReport
+
+
+class ARCHResearch(BaseResearchModule):
+
+    MODULE_OUTPUT = "module032"
+    METADATA = ARCHStatisticsEngine.METADATA
+
+    def __init__(self, registry: Optional[AtlasRegistry] = None):
+
+        super().__init__(
+            module_name="ARCH Effect Test",
+            module_version=self.METADATA["version"],
+        )
+
+        self.registry = registry or AtlasRegistry()
+        self.engine = ARCHEngine(max_lag=20)
+        self.stats_engine = ARCHStatisticsEngine()
+        self.returns = None
+        self.result_arch = None
+        self.statistics = None
+
+    def _register_pipeline_steps(self):
+        self.pipeline_steps = [
+            ("returns", self._compute_returns),
+            ("arch", self._compute_arch),
+            ("statistics", self._compute_statistics),
+            ("validate", self._validate),
+            ("export", self._export_results),
+        ]
+
+    def _compute_returns(self) -> Dict[str, Any]:
+        self.logger.info("Step 1: Computing log returns")
+        self.returns = ARCHEngine.compute_log_returns(self.df["close"])
+        self.logger.metric("Observations", f"{len(self.returns):,}")
+        self.logger.success("Returns computed")
+        return {"return_observations": len(self.returns)}
+
+    def _compute_arch(self) -> Dict[str, Any]:
+        self.logger.info("Step 2: Computing ARCH LM test")
+        self.result_arch = self.engine.compute(self.returns)
+        sig_count = int(self.result_arch.significant_mask.sum())
+        self.logger.metric("Significant lags", f"{sig_count}")
+        self.logger.metric("Max LM", f"{self.result_arch.lm_statistics.max():.4f}")
+        self.logger.metric("Min p", f"{self.result_arch.p_values.min():.6f}")
+        self.logger.success("ARCH test computed")
+        return {"significant_lags_raw": sig_count}
+
+    def _compute_statistics(self) -> Dict[str, Any]:
+        self.logger.info("Step 3: Computing statistics")
+        self.statistics = self.stats_engine.analyze(self.result_arch)
+        self.logger.metric("Significant lags", f"{self.statistics.significant_lags}")
+        self.logger.metric("SNR (raw)", f"{self.statistics.signal_to_noise}")
+        self.logger.metric("SNR (capped)", f"{self.statistics.signal_to_noise_capped}")
+        self.logger.metric("Hypothesis rejected", f"{self.statistics.hypothesis_rejected}")
+        self.logger.success("Statistics computed")
+        return self.stats_engine.summary_dict(self.statistics)
+
+    def _validate(self) -> Dict[str, Any]:
+        self.logger.info("Step 4: Validation")
+        arch_df = pd.DataFrame({
+            "lag": self.result_arch.lags,
+            "lm_statistic": self.result_arch.lm_statistics,
+            "p_value": self.result_arch.p_values,
+            "significant": self.result_arch.significant_mask,
+        })
+        passed = run_validation(self.result_arch, self.statistics, arch_df)
+        self.logger.success("Validation complete")
+        return {"validation_passed": passed}
+
+    def _export_results(self) -> Dict[str, Any]:
+        self.logger.info("Step 5: Export")
+
+        summary_df = self.stats_engine.summary_dataframe(self.statistics)
+        self.result.artifacts["arch_statistics"] = summary_df
+
+        arch_df = pd.DataFrame({
+            "lag": self.result_arch.lags,
+            "lm_statistic": self.result_arch.lm_statistics,
+            "p_value": self.result_arch.p_values,
+            "significant": self.result_arch.significant_mask,
+        })
+        self.result.artifacts["arch_results"] = arch_df
+
+        report = ARCHReport.generate(
+            self.statistics,
+            metadata=self.METADATA,
+            dataset_name=self.result.dataset_identifier,
+        )
+        self.result.artifacts["arch_report"] = report
+
+        self.logger.metric("Artifacts", f"{len(self.result.artifacts)}")
+        self.logger.success("Export complete")
+        return {"export_status": "complete", "artifact_count": len(self.result.artifacts)}
+
+    def compute(self) -> Dict[str, Any]:
+        self.logger.section("ARCH Effect Test Pipeline")
+        results = self.execute_pipeline()
+        self.result.status = "completed"
+        self.logger.success("Module 032 complete")
+        return results
+
+    def run(self, filepath: str, output_dir=None):
+        return super().run(filepath, output_dir)
+
+    def run_dataframe(self, df, dataset_id="in_memory", output_dir=None):
+        return super().run_dataframe(df, dataset_id, output_dir)

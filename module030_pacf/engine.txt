@@ -1,0 +1,85 @@
+# atlas/modules/module030_pacf/engine.py
+"""
+Module 030 - PACF Engine
+
+Computes Partial Autocorrelation Function (PACF)
+for BTC return series.
+
+FIXED: Removed effect-size classification. Stores significance mask only.
+       Added signal-to-noise ratio for cross-dataset comparison.
+"""
+
+from dataclasses import dataclass, field
+
+import numpy as np
+import pandas as pd
+from scipy.stats import norm
+from statsmodels.tsa.stattools import pacf
+
+
+# ----------------------------------------------------
+# Result Container
+# ----------------------------------------------------
+
+@dataclass
+class PACFResult:
+    lags: np.ndarray
+    coefficients: np.ndarray
+    lower_ci: np.ndarray
+    upper_ci: np.ndarray
+
+    sample_size: int
+    alpha: float
+    max_lag: int
+
+    confidence_margin: float = 0.0
+    significant_mask: np.ndarray = field(default=None)
+
+    def __post_init__(self):
+        if self.significant_mask is None:
+            self.significant_mask = (self.lower_ci > 0) | (self.upper_ci < 0)
+            self.significant_mask[0] = False
+
+    @property
+    def signal_to_noise(self) -> float:
+        """Maximum |PACF| / confidence margin for cross-dataset comparison."""
+        if self.confidence_margin > 0:
+            max_abs = np.max(np.abs(self.coefficients[1:]))
+            return float(max_abs / self.confidence_margin)
+        return 0.0
+
+
+# ----------------------------------------------------
+# PACF Engine
+# ----------------------------------------------------
+
+class PACFEngine:
+
+    def __init__(self, max_lag: int = 40, alpha: float = 0.05):
+        self.max_lag = max_lag
+        self.alpha = alpha
+
+    @staticmethod
+    def compute_log_returns(close: pd.Series) -> pd.Series:
+        returns = np.log(close / close.shift(1))
+        return returns.dropna()
+
+    def compute(self, returns: pd.Series) -> PACFResult:
+        values = pacf(returns, nlags=self.max_lag, method="ywm")
+        n = len(returns)
+        z = norm.ppf(1 - self.alpha / 2)
+        margin = z / np.sqrt(n)
+
+        lower = values - margin
+        upper = values + margin
+
+        return PACFResult(
+            lags=np.arange(len(values)),
+            coefficients=values,
+            lower_ci=lower,
+            upper_ci=upper,
+            sample_size=n,
+            alpha=self.alpha,
+            max_lag=self.max_lag,
+            confidence_margin=float(margin),
+        )

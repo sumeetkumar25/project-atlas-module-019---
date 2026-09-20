@@ -1,0 +1,176 @@
+# atlas/modules/module031_ljung_box/validator.py
+"""
+Module 031 - Ljung-Box Validator
+
+Validates Ljung-Box results, statistics, and dataframes for consistency.
+Never recomputes statistics - only verifies correctness.
+"""
+
+import numpy as np
+import pandas as pd
+
+from .engine import LjungBoxResult
+from .statistics import LjungBoxStatistics
+
+
+class LjungBoxValidator:
+
+    def validate(
+        self,
+        result: LjungBoxResult,
+        statistics: LjungBoxStatistics,
+        dataframe: pd.DataFrame
+    ) -> bool:
+        """
+        Validate Ljung-Box results, statistics, and dataframe.
+        
+        Returns True if all checks pass.
+        Raises ValueError with all accumulated issues if any check fails.
+        """
+        issues = []
+
+        # 1. Array lengths
+        n = len(result.lags)
+        if len(result.q_statistics) != n:
+            issues.append(f"Q statistics length {len(result.q_statistics)} != {n}")
+        if len(result.p_values) != n:
+            issues.append(f"P-values length {len(result.p_values)} != {n}")
+        if len(result.significant_mask) != n:
+            issues.append(f"Significant mask length {len(result.significant_mask)} != {n}")
+
+        # 2. Lag sequence
+        expected_lags = np.arange(1, result.max_lag + 1)
+        if not np.array_equal(result.lags, expected_lags):
+            issues.append(f"Lags not 1..{result.max_lag} in sequence")
+
+        # 3. Sample size
+        if result.sample_size <= result.max_lag:
+            issues.append(f"Sample size {result.sample_size} <= max_lag {result.max_lag}")
+
+        # 4. Alpha
+        if not (0 < result.alpha < 1):
+            issues.append(f"Alpha must be in (0,1), got {result.alpha}")
+
+        # 5. Confidence level
+        expected_confidence = 1.0 - result.alpha
+        if not np.isclose(result.confidence_level, expected_confidence, atol=1e-10):
+            issues.append(
+                f"Confidence level {result.confidence_level} != 1-alpha ({expected_confidence})"
+            )
+
+        # 6. Q statistics
+        if (result.q_statistics < 0).any():
+            n_neg = int((result.q_statistics < 0).sum())
+            issues.append(f"Found {n_neg} negative Q statistics")
+
+        # 7. P values
+        if (result.p_values < 0).any() or (result.p_values > 1).any():
+            issues.append("P-values outside [0, 1]")
+
+        # 8. Significant mask
+        expected_mask = result.p_values < result.alpha
+        if not np.array_equal(result.significant_mask, expected_mask):
+            issues.append("Significant mask does not match p_values < alpha")
+
+        # 9. Statistics - significant_lags
+        expected_sig = int(result.significant_mask.sum())
+        if statistics.significant_lags != expected_sig:
+            issues.append(
+                f"statistics.significant_lags ({statistics.significant_lags}) "
+                f"!= mask sum ({expected_sig})"
+            )
+
+        # 10. Density
+        expected_density = statistics.significant_lags / result.max_lag if result.max_lag > 0 else 0.0
+        if not np.isclose(statistics.significant_density, expected_density, atol=1e-10):
+            issues.append(
+                f"Density {statistics.significant_density} != "
+                f"significant_lags/max_lag ({expected_density})"
+            )
+
+        # 11. First/last significant lag
+        if statistics.significant_lags == 0:
+            if statistics.first_significant_lag is not None:
+                issues.append("first_significant_lag should be None when significant_lags=0")
+            if statistics.last_significant_lag is not None:
+                issues.append("last_significant_lag should be None when significant_lags=0")
+        else:
+            if statistics.first_significant_lag is None or statistics.first_significant_lag < 1:
+                issues.append(f"Invalid first_significant_lag: {statistics.first_significant_lag}")
+            if statistics.last_significant_lag is None or statistics.last_significant_lag > result.max_lag:
+                issues.append(f"Invalid last_significant_lag: {statistics.last_significant_lag}")
+            if statistics.first_significant_lag > statistics.last_significant_lag:
+                issues.append("first_significant_lag > last_significant_lag")
+
+        # 12. Minimum p-value
+        expected_min_p = float(np.min(result.p_values))
+        if not np.isclose(statistics.minimum_p_value, expected_min_p, atol=1e-10):
+            issues.append(
+                f"minimum_p_value {statistics.minimum_p_value} != {expected_min_p}"
+            )
+
+        # 13. Maximum Q
+        expected_max_q = float(np.max(result.q_statistics))
+        if not np.isclose(statistics.maximum_q_statistic, expected_max_q, atol=1e-10):
+            issues.append(
+                f"maximum_q_statistic {statistics.maximum_q_statistic} != {expected_max_q}"
+            )
+
+        # 14. Hypothesis
+        expected_hypothesis = statistics.significant_lags > 0
+        if statistics.hypothesis_rejected != expected_hypothesis:
+            issues.append(
+                f"hypothesis_rejected {statistics.hypothesis_rejected} "
+                f"!= (significant_lags > 0) ({expected_hypothesis})"
+            )
+
+        # 15. Signal-to-noise
+        if statistics.signal_to_noise < 0:
+            issues.append(f"Negative signal_to_noise: {statistics.signal_to_noise}")
+        if statistics.signal_to_noise_capped > 20.0:
+            issues.append(f"signal_to_noise_capped > 20: {statistics.signal_to_noise_capped}")
+
+        # 16. DataFrame
+        required_cols = ["lag", "q_statistic", "p_value", "significant"]
+        for col in required_cols:
+            if col not in dataframe.columns:
+                issues.append(f"DataFrame missing column: {col}")
+
+        if len(dataframe) != result.max_lag:
+            issues.append(f"DataFrame has {len(dataframe)} rows, expected {result.max_lag}")
+
+        if dataframe.isna().any().any():
+            issues.append("DataFrame contains NaN values")
+
+        if issues:
+            raise ValueError(
+                f"Ljung-Box validation failed with {len(issues)} issue(s):\n" +
+                "\n".join(f"  - {issue}" for issue in issues)
+            )
+
+        return True
+
+
+def run_validation(
+    result: LjungBoxResult,
+    statistics: LjungBoxStatistics,
+    dataframe: pd.DataFrame
+) -> bool:
+    """
+    Convenience function that runs validation and prints results.
+    """
+    validator = LjungBoxValidator()
+    print("\n" + "=" * 60)
+    print("LJUNG-BOX VALIDATION")
+    print("=" * 60)
+
+    try:
+        validator.validate(result, statistics, dataframe)
+        print("\n  ✓ All validation checks passed")
+        print("=" * 60)
+        return True
+    except ValueError as e:
+        print(f"\n  ✗ Validation failed:")
+        print(e)
+        print("=" * 60)
+        return False

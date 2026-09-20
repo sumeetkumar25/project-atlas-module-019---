@@ -1,0 +1,106 @@
+# atlas/modules/module030_pacf/report.py
+"""
+Module 030 - PACF Report
+
+Generates human-readable research reports.
+"""
+
+from datetime import datetime
+from pathlib import Path
+
+from .engine import PACFResult
+from .statistics import PACFStatistics
+
+
+class PACFReport:
+
+    @staticmethod
+    def build(result: PACFResult, stats: PACFStatistics) -> str:
+        lines = []
+
+        lines.append("=" * 60)
+        lines.append("PROJECT ATLAS - MODULE 030")
+        lines.append("PARTIAL AUTOCORRELATION ANALYSIS")
+        lines.append("=" * 60)
+        lines.append(f"\nGenerated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
+        lines.append("\n" + "-" * 40)
+        lines.append("DATASET INFORMATION")
+        lines.append("-" * 40)
+        lines.append(f"  Sample size: {stats.sample_size:,}")
+        lines.append(f"  Maximum lag: {stats.max_lag}")
+        lines.append(f"  Significance level: {result.alpha}")
+
+        lines.append("\n" + "-" * 40)
+        lines.append("SIGNIFICANT LAGS")
+        lines.append("-" * 40)
+        lines.append(f"  Total significant: {stats.significant_lags}")
+        lines.append(f"  Positive: {stats.significant_positive}")
+        lines.append(f"  Negative: {stats.significant_negative}")
+
+        if stats.first_significant_lag is not None:
+            lines.append(f"  First significant lag: {stats.first_significant_lag}")
+        if stats.last_significant_lag is not None:
+            lines.append(f"  Last significant lag: {stats.last_significant_lag}")
+
+        lines.append("\n" + "-" * 40)
+        lines.append("STRONGEST DEPENDENCIES")
+        lines.append("-" * 40)
+
+        if stats.strongest_positive_lag is not None:
+            lines.append(f"  Strongest positive: Lag {stats.strongest_positive_lag} ({stats.max_positive_pacf:+.4f})")
+        else:
+            lines.append(f"  Strongest positive: None")
+
+        if stats.strongest_negative_lag is not None:
+            lines.append(f"  Strongest negative: Lag {stats.strongest_negative_lag} ({stats.max_negative_pacf:+.4f})")
+        else:
+            lines.append(f"  Strongest negative: None")
+
+        lines.append(f"  Maximum |PACF|: {stats.max_abs_pacf:.4f}")
+
+        lines.append("\n" + "-" * 40)
+        lines.append("DISTRIBUTION")
+        lines.append("-" * 40)
+        lines.append(f"  Mean |PACF|: {stats.mean_abs_pacf:.4f}")
+        lines.append(f"  Median |PACF|: {stats.median_abs_pacf:.4f}")
+        lines.append(f"  Std |PACF|: {stats.std_abs_pacf:.4f}")
+        lines.append(f"  Significant density: {stats.significant_density:.3f}")
+
+        lines.append("\n" + "-" * 40)
+        lines.append("INTERPRETATION")
+        lines.append("-" * 40)
+
+        density = stats.significant_density
+
+        if density < 0.10:
+            interpretation = "Very weak direct dependence"
+        elif density < 0.30:
+            interpretation = "Weak direct dependence"
+        elif density < 0.50:
+            interpretation = "Moderate direct dependence"
+        else:
+            interpretation = "Strong direct dependence"
+
+        lines.append(f"  Density: {density:.3f}")
+        lines.append(f"  Interpretation: {interpretation}")
+
+        if stats.significant_lags > 0:
+            lines.append(f"\n  {stats.significant_lags} of {stats.max_lag} lags show statistically")
+            lines.append(f"  significant partial autocorrelation.")
+        else:
+            lines.append(f"\n  No lags show statistically significant")
+            lines.append(f"  partial autocorrelation.")
+
+        lines.append("\n" + "=" * 60)
+        lines.append("END OF REPORT")
+        lines.append("=" * 60)
+
+        return "\n".join(lines)
+
+    @staticmethod
+    def save(report: str, filepath: str):
+        path = Path(filepath)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(report)

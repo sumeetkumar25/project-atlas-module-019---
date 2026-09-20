@@ -1,0 +1,9 @@
+# atlas/modules/module032_arch_test/__init__.py
+"""
+Module 032
+ARCH Effect Test for Volatility Clustering
+"""
+
+from .module import ARCHResearch
+
+__all__ = ["ARCHResearch"]

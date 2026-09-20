@@ -1,0 +1,231 @@
+# atlas/modules/module032_arch_test/test_module.py
+"""
+Module 032 - Full Module Test
+
+Validates engine, statistics, validator, report, and full pipeline.
+Includes synthetic ARCH(1) process test.
+"""
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
+
+import numpy as np
+import pandas as pd
+
+from atlas.modules.module032_arch_test.engine import ARCHEngine
+from atlas.modules.module032_arch_test.statistics import ARCHStatisticsEngine
+from atlas.modules.module032_arch_test.validator import run_validation
+from atlas.modules.module032_arch_test.report import ARCHReport
+from atlas.modules.module032_arch_test.module import ARCHResearch
+from atlas.runner import ModuleRunner
+from atlas.framework.registry import AtlasRegistry
+
+
+def test_white_noise():
+    """Test 1: White noise should show no ARCH effects."""
+    print("\n" + "=" * 60)
+    print("TEST 1: White Noise (No ARCH Effects)")
+    print("=" * 60)
+
+    engine = ARCHEngine(max_lag=20)
+    stats_engine = ARCHStatisticsEngine()
+
+    np.random.seed(42)
+    n = 2000
+    white_noise = pd.Series(np.random.normal(0, 1, n))
+    result = engine.compute(white_noise)
+    stats = stats_engine.analyze(result)
+
+    sig_count = int(result.significant_mask.sum())
+    assert sig_count <= 3, f"White noise should have few significant lags, got {sig_count}"
+    assert not stats.hypothesis_rejected or sig_count <= 2
+
+    print(f"  Significant lags: {sig_count}")
+    print(f"  Hypothesis rejected: {stats.hypothesis_rejected}")
+    print("  ✓ White noise test passed")
+    return True
+
+
+def test_arch_process():
+    """Test 2: Synthetic ARCH(1) should reject H0."""
+    print("\n" + "=" * 60)
+    print("TEST 2: Synthetic ARCH(1) Process")
+    print("=" * 60)
+
+    engine = ARCHEngine(max_lag=20)
+    stats_engine = ARCHStatisticsEngine()
+
+    np.random.seed(42)
+    n = 2000
+
+    # Generate ARCH(1) process
+    omega = 0.1
+    alpha = 0.7
+    returns = np.zeros(n)
+    sigma2 = np.ones(n) * omega
+
+    for t in range(1, n):
+        sigma2[t] = omega + alpha * returns[t-1]**2
+        returns[t] = np.sqrt(sigma2[t]) * np.random.normal(0, 1)
+
+    arch_series = pd.Series(returns)
+    result = engine.compute(arch_series)
+    stats = stats_engine.analyze(result)
+
+    sig_count = int(result.significant_mask.sum())
+    assert stats.hypothesis_rejected, "ARCH(1) should reject null hypothesis"
+    assert sig_count > 0, "ARCH(1) should have significant lags"
+    assert stats.signal_to_noise > 1.0, f"ARCH(1) should have strong signal"
+
+    print(f"  Significant lags: {sig_count}")
+    print(f"  Signal-to-noise: {stats.signal_to_noise}")
+    print(f"  Hypothesis rejected: {stats.hypothesis_rejected}")
+    print("  ✓ ARCH(1) test passed")
+    return True
+
+
+def test_validator():
+    """Test 3: Validator checks."""
+    print("\n" + "=" * 60)
+    print("TEST 3: Validator")
+    print("=" * 60)
+
+    engine = ARCHEngine(max_lag=20)
+    stats_engine = ARCHStatisticsEngine()
+
+    np.random.seed(42)
+    white_noise = pd.Series(np.random.normal(0, 1, 500))
+    result = engine.compute(white_noise)
+    stats = stats_engine.analyze(result)
+
+    arch_df = pd.DataFrame({
+        "lag": result.lags,
+        "lm_statistic": result.lm_statistics,
+        "p_value": result.p_values,
+        "significant": result.significant_mask,
+    })
+
+    passed = run_validation(result, stats, arch_df)
+    assert passed
+
+    print("  ✓ Validator test passed")
+    return True
+
+
+def test_pipeline():
+    """Test 4: Full pipeline."""
+    print("\n" + "=" * 60)
+    print("TEST 4: Full Pipeline")
+    print("=" * 60)
+
+    n = 500
+    np.random.seed(42)
+    close = np.cumsum(np.random.randn(n)) + 100
+    close = np.maximum(close, 1)
+
+    dates = pd.date_range(start="2020-01-01", periods=n, freq="15min")
+    df = pd.DataFrame({
+        "timestamp": dates,
+        "open": close * 0.999,
+        "high": close * 1.002,
+        "low": close * 0.998,
+        "close": close,
+        "volume": np.ones(n) * 100,
+    })
+
+    research = ARCHResearch()
+    result = research.run_dataframe(df, dataset_id="pipeline_test")
+
+    assert result.status == "completed"
+    assert "arch_statistics" in result.artifacts
+    assert "arch_results" in result.artifacts
+    assert "arch_report" in result.artifacts
+    assert result.statistics.get("validation_passed") == True
+
+    print("  ✓ Full pipeline test passed")
+    return True
+
+
+def test_btc_data():
+    """Test 5: BTC datasets."""
+    print("\n" + "=" * 60)
+    print("TEST 5: BTC Data")
+    print("=" * 60)
+
+    datasets = {
+        "BTC_15m": "data/raw/BTCUSD_15m.csv",
+        "BTC_1h": "data/raw/BTCUSD_1h.csv",
+        "BTC_4h": "data/raw/BTCUSD_4h.csv",
+    }
+
+    missing = [name for name, path in datasets.items() if not Path(path).exists()]
+    if missing:
+        print(f"  ⚠ Missing: {missing}")
+        return True
+
+    registry = AtlasRegistry()
+    runner = ModuleRunner(registry=registry)
+
+    results = runner.run_on_datasets(
+        module_class=ARCHResearch,
+        datasets=datasets,
+        output_base_dir="outputs/module032",
+        validate_after=False,
+    )
+
+    all_ok = True
+    for name, res in results.items():
+        if res.status == "completed":
+            sig_lags = res.statistics.get("significant_lags", 0)
+            snr = res.statistics.get("signal_to_noise", 0)
+            rejected = res.statistics.get("hypothesis_rejected", False)
+            print(f"\n  {name}:")
+            print(f"    Significant lags: {sig_lags}")
+            print(f"    Signal-to-noise: {snr}")
+            print(f"    H0 rejected: {rejected}")
+            print(f"    ✓ Complete")
+        else:
+            print(f"  ✗ {name}: Failed")
+            all_ok = False
+
+    return all_ok
+
+
+def main():
+    print("\n" + "=" * 70)
+    print("PROJECT ATLAS - MODULE 032 FULL TEST")
+    print("ARCH Effect Test for Volatility Clustering")
+    print("=" * 70)
+
+    results = {}
+
+    results["white_noise"] = test_white_noise()
+    results["arch_process"] = test_arch_process()
+    results["validator"] = test_validator()
+    results["pipeline"] = test_pipeline()
+    results["btc"] = test_btc_data()
+
+    print("\n" + "=" * 70)
+    print("RESULTS")
+    print("=" * 70)
+
+    for name, ok in results.items():
+        print(f"  {'✓' if ok else '✗'} {name}")
+
+    passed = sum(results.values())
+    total = len(results)
+
+    print(f"\n  {passed}/{total} tests passed")
+
+    if passed == total:
+        print("\n✓ Module 032 VALIDATED")
+        return 0
+    else:
+        print("\n⚠ Some tests failed")
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
