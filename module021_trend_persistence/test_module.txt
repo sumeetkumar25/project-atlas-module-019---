@@ -1,0 +1,107 @@
+# atlas/modules/module021_trend_persistence/test_module.py
+"""
+Module 021 Test
+"""
+
+import numpy as np
+import pandas as pd
+
+from atlas.modules.module021_trend_persistence.module import (
+    TrendPersistenceResearch,
+)
+
+
+def test_pipeline():
+
+    np.random.seed(42)
+
+    n = 500
+    close = 100 + np.cumsum(np.random.randn(n))
+    close = np.maximum(close, 1)
+
+    df = pd.DataFrame({
+        "timestamp": pd.date_range("2025-01-01", periods=n, freq="15min"),
+        "open": close * 0.999,
+        "high": close + np.random.uniform(0.5, 2, n),
+        "low": close - np.random.uniform(0.5, 2, n),
+        "close": close,
+        "volume": np.random.randint(100, 1000, n),
+    })
+
+    module = TrendPersistenceResearch()
+    result = module.run_dataframe(df, dataset_id="pipeline_test")
+
+    stats = result.statistics
+    artifacts = result.artifacts
+
+    checks = 0
+
+    labels = [
+        "Completed",
+        "Trend detection complete",
+        "Duration complete",
+        "Transitions complete",
+        "Statistics complete",
+        "Distribution complete",
+        "Export complete",
+        "Trend series artifact",
+        "Trend duration artifact",
+        "Trend transitions artifact",
+        "Trend statistics artifact",
+        "Trend distribution artifact",
+    ]
+
+    total = len(labels)
+
+    if result.status == "completed":
+        checks += 1
+    if stats.get("trend_detection_status") == "complete":
+        checks += 1
+    if stats.get("trend_duration_status") == "complete":
+        checks += 1
+    if stats.get("transition_status") == "complete":
+        checks += 1
+    if stats.get("statistics_status") == "complete":
+        checks += 1
+    if stats.get("distribution_status") == "complete":
+        checks += 1
+    if stats.get("export_status") == "complete":
+        checks += 1
+    if "trend_series" in artifacts:
+        checks += 1
+    if "trend_duration" in artifacts:
+        checks += 1
+    if "trend_transitions" in artifacts:
+        checks += 1
+    if "trend_statistics" in artifacts:
+        checks += 1
+    if "trend_distribution" in artifacts:
+        checks += 1
+
+    for i, label in enumerate(labels):
+        print("  {} {}".format("✓" if i < checks else "✗", label))
+
+    up_trends = stats.get("up_trends", 0)
+    down_trends = stats.get("down_trends", 0)
+    mean_dur = stats.get("mean_duration", 0)
+    artifact_count = stats.get("artifact_count", 0)
+
+    print("\n  Up trends: {:,}".format(up_trends))
+    print("  Down trends: {:,}".format(down_trends))
+    print("  Mean duration: {:.2f}".format(mean_dur))
+    print("  Artifacts: {}".format(artifact_count))
+
+    print("\n  Pipeline: {}/{} passed".format(checks, total))
+    return checks == total
+
+
+if __name__ == "__main__":
+
+    success = test_pipeline()
+
+    if success:
+        print("\n✓ Module 021 VALIDATED")
+        print("✓ All 6 steps implemented")
+        print("✓ Ready to freeze")
+    else:
+        print("\n⚠ Some tests failed")

@@ -1,0 +1,76 @@
+# atlas/modules/module021_trend_persistence/protocol.py
+"""
+Module 021 Protocol
+"""
+
+from atlas.framework.protocol import (
+    ResearchProtocol,
+    ModuleCategory,
+)
+
+from .config import MODULE_VERSION
+
+
+PROTOCOL = ResearchProtocol(
+
+    module_id="021",
+
+    module_name="Trend Persistence",
+
+    category=ModuleCategory.PRICE_BEHAVIOR,
+
+    question=(
+        "How long do statistically detected trends persist?"
+    ),
+
+    hypothesis=(
+        "Trend duration exhibits measurable statistical properties."
+    ),
+
+    rationale=(
+        "Quantify trend persistence without generating trading signals."
+    ),
+
+    methodology=(
+        "Trend detection, duration analysis, transition detection, and persistence statistics."
+    ),
+
+    statistics=[
+        "mean_duration",
+        "median_duration",
+        "max_duration",
+        "transition_count",
+    ],
+
+    depends_on=[],
+
+    required_datasets=[
+        "BTC_15m",
+        "BTC_1h",
+        "BTC_4h",
+    ],
+
+    produces=[
+        "trend_series",
+        "trend_duration",
+        "trend_transitions",
+        "trend_statistics",
+        "trend_distribution",
+    ],
+
+    version=MODULE_VERSION,
+
+    author="Project Atlas",
+
+    limitations=[
+        "Trend is defined using price difference over a fixed lookback.",
+        "No predictive model is used.",
+        "Research only.",
+    ],
+
+    future_research=[
+        "EMA slope comparison",
+        "Regression-based trends",
+        "Trend strength metrics",
+    ],
+)

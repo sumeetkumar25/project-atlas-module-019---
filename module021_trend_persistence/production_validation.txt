@@ -1,0 +1,152 @@
+# atlas/modules/module021_trend_persistence/production_validation.py
+"""
+Module 021 Production Validation
+
+Runs Module 021 on all production datasets.
+
+BTC_15m
+BTC_1h
+BTC_4h
+"""
+
+from pathlib import Path
+
+from atlas.modules.module021_trend_persistence.module import (
+    TrendPersistenceResearch,
+)
+
+# -----------------------------------------------------
+
+DATASETS = {
+
+    "BTC_15m":
+        "data/raw/BTCUSD_15m.csv",
+
+    "BTC_1h":
+        "data/raw/BTCUSD_1h.csv",
+
+    "BTC_4h":
+        "data/raw/BTCUSD_4h.csv",
+
+}
+
+# -----------------------------------------------------
+
+
+def run_dataset(name, path):
+
+    print("\n" + "=" * 70)
+    print(name)
+    print("=" * 70)
+
+    module = TrendPersistenceResearch()
+
+    result = module.run(
+        filepath=path,
+    )
+
+    stats = result.statistics
+
+    print("\nSummary")
+    print("-" * 40)
+
+    print(
+        "Rows: "
+        "{}".format(stats['observations'])
+    )
+
+    print(
+        "Up trends: "
+        "{}".format(stats['up_trends'])
+    )
+
+    print(
+        "Down trends: "
+        "{}".format(stats['down_trends'])
+    )
+
+    print(
+        "Flat trends: "
+        "{}".format(stats['flat_trends'])
+    )
+
+    print(
+        "Mean duration: "
+        "{:.2f}".format(stats['mean_duration'])
+    )
+
+    print(
+        "Median duration: "
+        "{:.2f}".format(stats['median_duration'])
+    )
+
+    print(
+        "Maximum duration: "
+        "{:.2f}".format(stats['max_duration'])
+    )
+
+    print(
+        "Transitions: "
+        "{}".format(stats['transition_count'])
+    )
+
+    print(
+        "Artifacts: "
+        "{}".format(stats['artifact_count'])
+    )
+
+    return stats
+
+
+def main():
+
+    summary = {}
+
+    for dataset, path in DATASETS.items():
+
+        if not Path(path).exists():
+
+            print("Missing: {}".format(path))
+
+            continue
+
+        summary[dataset] = run_dataset(
+            dataset,
+            path,
+        )
+
+    print("\n")
+    print("=" * 70)
+    print("CROSS DATASET SUMMARY")
+    print("=" * 70)
+
+    for name, stats in summary.items():
+
+        print()
+
+        print(name)
+
+        print(
+            "  Mean duration : {:.2f}".format(stats['mean_duration'])
+        )
+
+        print(
+            "  Max duration  : {:.2f}".format(stats['max_duration'])
+        )
+
+        print(
+            "  Up trends     : {}".format(stats['up_trends'])
+        )
+
+        print(
+            "  Down trends   : {}".format(stats['down_trends'])
+        )
+
+        print(
+            "  Transitions   : {}".format(stats['transition_count'])
+        )
+
+
+if __name__ == "__main__":
+
+    main()

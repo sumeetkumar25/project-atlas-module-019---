@@ -1,0 +1,11 @@
+# atlas/modules/module021_trend_persistence/__init__.py
+"""
+Module 021
+Trend Persistence
+"""
+
+from .module import TrendPersistenceResearch
+
+__all__ = [
+    "TrendPersistenceResearch",
+]

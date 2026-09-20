@@ -1,0 +1,222 @@
+# atlas/modules/module021_trend_persistence/module.py
+"""
+Module 021
+Trend Persistence
+
+All 6 steps implemented.
+MODULE_OUTPUT = "module021" for standardized export path.
+"""
+
+from typing import Optional
+
+import pandas as pd
+
+from atlas.core.base_research_module import BaseResearchModule
+from atlas.framework.registry import AtlasRegistry
+
+from atlas.core.trend import (
+    TrendDetector,
+    TrendPersistence,
+    TrendTransitions,
+    TrendStatistics,
+)
+
+from .config import *
+from .protocol import PROTOCOL
+
+
+class TrendPersistenceResearch(BaseResearchModule):
+
+    MODULE_OUTPUT = "module021"
+    PROTOCOL = PROTOCOL
+
+    def __init__(
+        self,
+        registry: Optional[AtlasRegistry] = None,
+    ):
+
+        super().__init__(
+            module_name=MODULE_NAME,
+            module_version=MODULE_VERSION,
+        )
+
+        self.registry = registry or AtlasRegistry()
+
+        if not self.registry.get_module(MODULE_ID):
+            self.registry.register_module(PROTOCOL)
+
+        self.trend = None
+        self.duration = None
+        self.transitions = None
+        self.statistics = None
+        self.distribution = None
+
+    def _register_pipeline_steps(self):
+
+        self.pipeline_steps = [
+
+            ("trend_detection", self._trend_detection),
+
+            ("trend_duration", self._trend_duration),
+
+            ("transitions", self._transitions),
+
+            ("statistics", self._statistics),
+
+            ("distribution", self._distribution),
+
+            ("export", self._export),
+
+        ]
+
+    # ---- Step 1: Trend Detection ----
+    def _trend_detection(self):
+
+        self.logger.info("Step 1: Trend detection")
+
+        self.trend = TrendDetector.detect(
+            self.df["close"],
+            lookback=TREND_LOOKBACK,
+        )
+
+        self.result.artifacts["trend_series"] = self.trend
+
+        counts = self.trend["trend"].value_counts()
+
+        self.logger.metric("Up trends", "{:,}".format(int(counts.get(1, 0))))
+        self.logger.metric("Down trends", "{:,}".format(int(counts.get(-1, 0))))
+        self.logger.metric("Flat trends", "{:,}".format(int(counts.get(0, 0))))
+
+        return {
+            "trend_detection_status": "complete",
+            "up_trends": int(counts.get(1, 0)),
+            "down_trends": int(counts.get(-1, 0)),
+            "flat_trends": int(counts.get(0, 0)),
+        }
+
+    # ---- Step 2: Trend Duration ----
+    def _trend_duration(self):
+
+        self.logger.info("Step 2: Trend duration")
+
+        self.duration = TrendPersistence.compute(
+            self.trend["trend"]
+        )
+
+        self.result.artifacts["trend_duration"] = self.duration.to_frame("duration")
+
+        return {
+            "trend_duration_status": "complete",
+            "valid_duration": int(self.duration.notna().sum()),
+        }
+
+    # ---- Step 3: Trend Transitions ----
+    def _transitions(self):
+
+        self.logger.info("Step 3: Trend transitions")
+
+        self.transitions = TrendTransitions.detect(
+            self.trend["trend"]
+        )
+
+        self.result.artifacts["trend_transitions"] = self.transitions.to_frame("transition")
+
+        return {
+            "transition_status": "complete",
+            "transition_count": int(self.transitions.sum()),
+        }
+
+    # ---- Step 4: Statistics ----
+    def _statistics(self):
+
+        self.logger.info("Step 4: Statistics")
+
+        df = pd.DataFrame({
+            "duration": self.duration,
+            "transition": self.transitions,
+        })
+
+        self.statistics = TrendStatistics.summary(df)
+
+        self.result.artifacts["trend_statistics"] = pd.DataFrame([self.statistics])
+
+        for k, v in self.statistics.items():
+            if isinstance(v, float):
+                self.logger.metric(k, "{:.4f}".format(v))
+            else:
+                self.logger.metric(k, "{:,}".format(v))
+
+        stats = self.statistics.copy()
+        stats["statistics_status"] = "complete"
+
+        return stats
+
+    # ---- Step 5: Distribution ----
+    def _distribution(self):
+
+        self.logger.info("Step 5: Distribution")
+
+        dist = (
+            self.trend["trend"]
+            .value_counts()
+            .sort_index()
+            .rename_axis("trend")
+            .reset_index(name="count")
+        )
+
+        mapping = {
+            -1: "Down",
+            0: "Flat",
+            1: "Up",
+        }
+
+        dist["label"] = dist["trend"].map(mapping)
+        dist["percent"] = dist["count"] / dist["count"].sum() * 100
+
+        self.distribution = dist
+
+        self.result.artifacts["trend_distribution"] = dist
+
+        for _, row in dist.iterrows():
+            self.logger.info(
+                "  {}: {} ({:.1f}%)".format(
+                    row["label"],
+                    int(row["count"]),
+                    row["percent"],
+                )
+            )
+
+        return {"distribution_status": "complete"}
+
+    # ---- Step 6: Export ----
+    def _export(self):
+
+        self.logger.info("Step 6: Export")
+
+        self.logger.metric("Artifacts", "{}".format(len(self.result.artifacts)))
+
+        for name, artifact in self.result.artifacts.items():
+            if hasattr(artifact, "__len__"):
+                self.logger.info("  {}: {} rows".format(name, len(artifact)))
+
+        return {
+            "export_status": "complete",
+            "artifact_count": len(self.result.artifacts),
+        }
+
+    def compute(self):
+
+        self.logger.section("Trend Persistence Pipeline")
+        self.logger.info("Executing Steps 1-6")
+
+        results = self.execute_pipeline()
+        self.result.status = "completed"
+        self.logger.success("Module 021 complete")
+
+        return results
+
+    def run(self, filepath: str, output_dir=None):
+        return super().run(filepath, output_dir)
+
+    def run_dataframe(self, df, dataset_id="in_memory", output_dir=None):
+        return super().run_dataframe(df, dataset_id, output_dir)

@@ -1,0 +1,14 @@
+# atlas/modules/module021_trend_persistence/config.py
+"""
+Module 021 Configuration
+"""
+
+MODULE_ID = "021"
+
+MODULE_NAME = "Trend Persistence"
+
+MODULE_VERSION = "1.0.0"
+
+TREND_LOOKBACK = 20
+
+MIN_VALID_OBSERVATIONS = 100
