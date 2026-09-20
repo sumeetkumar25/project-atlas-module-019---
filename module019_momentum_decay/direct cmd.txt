@@ -1,0 +1,1 @@
+python -m atlas.modules.module019_momentum_decay.test_module
