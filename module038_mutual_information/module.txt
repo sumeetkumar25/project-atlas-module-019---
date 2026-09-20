@@ -1,0 +1,126 @@
+# atlas/modules/module038_mutual_information/module.py
+"""
+Module 038
+Mutual Information Analysis
+
+Pipeline: log returns → lag construction → MI → statistics → validation → report → export
+"""
+
+from typing import Optional, Dict, Any
+
+import numpy as np
+import pandas as pd
+
+from atlas.core.base_research_module import BaseResearchModule
+from atlas.framework.registry import AtlasRegistry
+
+from .engine import MutualInformationEngine
+from .statistics import MutualInformationStatisticsEngine
+from .validator import run_validation
+from .report import MutualInformationReport
+
+
+class MutualInformationResearch(BaseResearchModule):
+
+    MODULE_OUTPUT = "module038"
+    METADATA = MutualInformationStatisticsEngine.METADATA
+
+    def __init__(self, registry: Optional[AtlasRegistry] = None):
+
+        super().__init__(
+            module_name="Mutual Information",
+            module_version=self.METADATA["version"],
+        )
+
+        self.registry = registry or AtlasRegistry()
+        self.engine = MutualInformationEngine(bins="fd", lag=1)
+        self.stats_engine = MutualInformationStatisticsEngine()
+        self.result_mi = None
+        self.statistics = None
+
+    def _register_pipeline_steps(self):
+        self.pipeline_steps = [
+            ("mutual_information", self._compute_mi),
+            ("statistics", self._compute_statistics),
+            ("validate", self._validate),
+            ("export", self._export_results),
+        ]
+
+    def _compute_mi(self) -> Dict[str, Any]:
+        self.logger.info("Step 1: Computing mutual information on lagged returns")
+
+        prices = self.df["close"].astype(float)
+        returns = np.diff(np.log(prices))
+        returns = returns[np.isfinite(returns)]
+
+        lag = self.engine.lag
+        x = returns[:-lag]
+        y = returns[lag:]
+
+        self.result_mi = self.engine.compute(x, y, series_type="lag1_log_returns")
+
+        self.logger.metric("Lag", f"{self.result_mi.lag}")
+        self.logger.metric("MI", f"{self.result_mi.mutual_information:.6f} bits")
+        self.logger.metric("Normalized MI", f"{self.result_mi.normalized_mutual_information:.6f}")
+        self.logger.metric("Sample size", f"{self.result_mi.sample_size:,}")
+        self.logger.success("Mutual information computed")
+
+        return {
+            "mutual_information": self.result_mi.mutual_information,
+            "normalized_mi": self.result_mi.normalized_mutual_information,
+            "sample_size": self.result_mi.sample_size,
+            "lag": self.result_mi.lag,
+        }
+
+    def _compute_statistics(self) -> Dict[str, Any]:
+        self.logger.info("Step 2: Computing statistics")
+        self.statistics = self.stats_engine.analyze(self.result_mi)
+        self.logger.metric("Regime", self.statistics.regime)
+        self.logger.success("Statistics computed")
+        return self.stats_engine.summary_dict(self.statistics)
+
+    def _validate(self) -> Dict[str, Any]:
+        self.logger.info("Step 3: Validation")
+        passed = run_validation(self.result_mi, self.statistics)
+        self.logger.success("Validation complete")
+        return {"validation_passed": passed}
+
+    def _export_results(self) -> Dict[str, Any]:
+        self.logger.info("Step 4: Export")
+
+        self.result.artifacts["mi_statistics"] = (
+            self.stats_engine.summary_dataframe(self.statistics)
+        )
+
+        mi_df = pd.DataFrame({
+            "x": self.result_mi.x,
+            "y": self.result_mi.y,
+        })
+        self.result.artifacts["mi_data"] = mi_df
+
+        report = MutualInformationReport.generate(
+            self.statistics,
+            metadata=self.METADATA,
+            dataset_name=self.result.dataset_identifier,
+        )
+        self.result.artifacts["mi_report"] = report
+
+        self.logger.metric("Artifacts", str(len(self.result.artifacts)))
+        self.logger.success("Export complete")
+        return {
+            "export_status": "complete",
+            "artifact_count": len(self.result.artifacts),
+        }
+
+    def compute(self) -> Dict[str, Any]:
+        self.logger.section("Mutual Information Pipeline")
+        results = self.execute_pipeline()
+        self.result.status = "completed"
+        self.logger.success("Module 038 complete")
+        return results
+
+    def run(self, filepath: str, output_dir=None):
+        return super().run(filepath, output_dir)
+
+    def run_dataframe(self, df, dataset_id="in_memory", output_dir=None):
+        return super().run_dataframe(df, dataset_id, output_dir)

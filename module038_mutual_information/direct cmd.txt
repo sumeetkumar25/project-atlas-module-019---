@@ -1,0 +1,1 @@
+python -m atlas.modules.module038_mutual_information.test_module

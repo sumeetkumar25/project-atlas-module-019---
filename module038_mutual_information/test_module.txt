@@ -1,0 +1,226 @@
+# atlas/modules/module038_mutual_information/test_module.py
+"""
+Module 038 - Integration Test
+
+Tests mutual information engine, statistics, validator, report, and pipeline.
+"""
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
+
+import numpy as np
+import pandas as pd
+
+from atlas.modules.module038_mutual_information.engine import MutualInformationEngine
+from atlas.modules.module038_mutual_information.statistics import MutualInformationStatisticsEngine
+from atlas.modules.module038_mutual_information.validator import run_validation
+from atlas.modules.module038_mutual_information.report import MutualInformationReport
+from atlas.modules.module038_mutual_information.module import MutualInformationResearch
+
+
+def test_independent():
+    """Test 1: Independent Gaussian series → MI near 0."""
+    print("\n" + "=" * 60)
+    print("TEST 1: Independent Gaussian Series")
+    print("=" * 60)
+
+    engine = MutualInformationEngine(bins="fd", lag=1)
+    stats_engine = MutualInformationStatisticsEngine()
+
+    np.random.seed(42)
+    n = 2000
+    x = np.random.normal(0, 1, n)
+    y = np.random.normal(0, 1, n)
+    result = engine.compute(x, y, series_type="independent_gaussian")
+    stats = stats_engine.analyze(result)
+
+    assert result.normalized_mutual_information < 0.10, (
+        f"Independent series should have low NMI, got {result.normalized_mutual_information:.6f}"
+    )
+    assert stats.regime in ["Independent", "Weak Dependence"]
+
+    print(f"  MI: {result.mutual_information:.6f} bits")
+    print(f"  NMI: {result.normalized_mutual_information:.6f}")
+    print(f"  Regime: {stats.regime}")
+    print("  ✓ Independent test passed")
+    return True
+
+
+def test_linear():
+    """Test 2: Linear relationship (y = 0.5*x + noise) → MI > independent."""
+    print("\n" + "=" * 60)
+    print("TEST 2: Linear Relationship")
+    print("=" * 60)
+
+    engine = MutualInformationEngine(bins="fd", lag=1)
+    stats_engine = MutualInformationStatisticsEngine()
+
+    np.random.seed(42)
+    n = 2000
+    x = np.random.normal(0, 1, n)
+    y = 0.5 * x + np.random.normal(0, 0.5, n)
+    result = engine.compute(x, y, series_type="linear_dependence")
+    stats = stats_engine.analyze(result)
+
+    assert result.normalized_mutual_information > 0.01, (
+        f"Linear relationship should have detectable NMI, got {result.normalized_mutual_information:.6f}"
+    )
+
+    print(f"  MI: {result.mutual_information:.6f} bits")
+    print(f"  NMI: {result.normalized_mutual_information:.6f}")
+    print(f"  Regime: {stats.regime}")
+    print("  ✓ Linear test passed")
+    return True
+
+
+def test_nonlinear():
+    """Test 3: Nonlinear relationship (y = x² + noise) → MI detects dependence."""
+    print("\n" + "=" * 60)
+    print("TEST 3: Nonlinear Relationship")
+    print("=" * 60)
+
+    engine = MutualInformationEngine(bins="fd", lag=1)
+    stats_engine = MutualInformationStatisticsEngine()
+
+    np.random.seed(42)
+    n = 2000
+    x = np.random.normal(0, 1, n)
+    y = x ** 2 + np.random.normal(0, 0.3, n)
+    result = engine.compute(x, y, series_type="nonlinear_dependence")
+    stats = stats_engine.analyze(result)
+
+    assert result.normalized_mutual_information > 0.05, (
+        f"Nonlinear relationship should have detectable NMI, got {result.normalized_mutual_information:.6f}"
+    )
+
+    print(f"  MI: {result.mutual_information:.6f} bits")
+    print(f"  NMI: {result.normalized_mutual_information:.6f}")
+    print(f"  Regime: {stats.regime}")
+    print("  ✓ Nonlinear test passed")
+    return True
+
+
+def test_validator():
+    """Test 4: Validator."""
+    print("\n" + "=" * 60)
+    print("TEST 4: Validator")
+    print("=" * 60)
+
+    engine = MutualInformationEngine(bins="fd", lag=1)
+    stats_engine = MutualInformationStatisticsEngine()
+
+    np.random.seed(42)
+    x = np.random.normal(0, 1, 500)
+    y = 0.5 * x + np.random.normal(0, 0.5, 500)
+    result = engine.compute(x, y, series_type="test")
+    stats = stats_engine.analyze(result)
+
+    passed = run_validation(result, stats)
+    assert passed
+    print("  ✓ Validator test passed")
+    return True
+
+
+def test_report():
+    """Test 5: Report generation."""
+    print("\n" + "=" * 60)
+    print("TEST 5: Report Generation")
+    print("=" * 60)
+
+    engine = MutualInformationEngine(bins="fd", lag=1)
+    stats_engine = MutualInformationStatisticsEngine()
+
+    np.random.seed(42)
+    x = np.random.normal(0, 1, 500)
+    y = 0.5 * x + np.random.normal(0, 0.5, 500)
+    result = engine.compute(x, y, series_type="test")
+    stats = stats_engine.analyze(result)
+
+    report = MutualInformationReport.generate(stats, dataset_name="Test")
+    assert "MUTUAL INFORMATION" in report
+    assert "CLASSIFICATION" in report
+
+    report_path = Path("temp/module038_test_report.txt")
+    MutualInformationReport.save(report, str(report_path))
+    assert report_path.exists()
+
+    print("  ✓ Report test passed")
+    return True
+
+
+def test_pipeline():
+    """Test 6: Full pipeline."""
+    print("\n" + "=" * 60)
+    print("TEST 6: Full Pipeline")
+    print("=" * 60)
+
+    n = 500
+    np.random.seed(42)
+    close = np.cumsum(np.random.normal(0, 1, n)) + 100
+    close = np.maximum(close, 1)
+
+    dates = pd.date_range(start="2020-01-01", periods=n, freq="15min")
+    df = pd.DataFrame({
+        "timestamp": dates,
+        "open": close * 0.999,
+        "high": close * 1.002,
+        "low": close * 0.998,
+        "close": close,
+        "volume": np.ones(n) * 100,
+    })
+
+    research = MutualInformationResearch()
+    result = research.run_dataframe(df, dataset_id="pipeline_test")
+
+    assert result.status == "completed"
+    assert result.statistics.get("lag") == 1
+    assert "mi_statistics" in result.artifacts
+    assert "mi_data" in result.artifacts
+    assert "mi_report" in result.artifacts
+    assert result.statistics.get("validation_passed") == True
+
+    print(f"  MI: {result.statistics.get('mutual_information'):.6f}")
+    print(f"  NMI: {result.statistics.get('normalized_mi'):.6f}")
+    print("  ✓ Full pipeline test passed")
+    return True
+
+
+def main():
+    print("\n" + "=" * 70)
+    print("PROJECT ATLAS - MODULE 038 INTEGRATION TEST")
+    print("Mutual Information Analysis")
+    print("=" * 70)
+
+    results = {}
+
+    results["independent"] = test_independent()
+    results["linear"] = test_linear()
+    results["nonlinear"] = test_nonlinear()
+    results["validator"] = test_validator()
+    results["report"] = test_report()
+    results["pipeline"] = test_pipeline()
+
+    print("\n" + "=" * 70)
+    print("RESULTS")
+    print("=" * 70)
+
+    for name, ok in results.items():
+        print(f"  {'✓' if ok else '✗'} {name}")
+
+    passed = sum(results.values())
+    total = len(results)
+
+    print(f"\n  {passed}/{total} tests passed")
+
+    if passed == total:
+        print("\n✓ Module 038 VALIDATED")
+        return 0
+    else:
+        print("\n⚠ Some tests failed")
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

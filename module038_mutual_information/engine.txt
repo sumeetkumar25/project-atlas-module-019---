@@ -1,0 +1,146 @@
+# atlas/modules/module038_mutual_information/engine.py
+"""
+Module 038 - Mutual Information Engine
+
+Measures dependence between BTC returns at different lags.
+
+Unlike correlation (linear only), mutual information captures
+both linear and nonlinear dependencies.
+
+I(r_{t-1}, r_t) = Σ p(x,y) × log2( p(x,y) / (p(x) × p(y)) )
+
+Normalized MI ∈ [0, 1]:
+  0 = independent
+  1 = perfectly dependent
+
+FIXED: Uses np.histogram_bin_edges() for adaptive 2D binning.
+       Supports both string methods ("fd", "auto") and integer counts.
+"""
+
+from dataclasses import dataclass
+
+import numpy as np
+
+
+# ----------------------------------------------------
+# Result Container
+# ----------------------------------------------------
+
+@dataclass
+class MutualInformationResult:
+    sample_size: int
+    mutual_information: float
+    normalized_mutual_information: float
+    x: np.ndarray
+    y: np.ndarray
+    series_type: str = "unknown"
+    lag: int = 1
+
+
+# ----------------------------------------------------
+# Mutual Information Engine
+# ----------------------------------------------------
+
+class MutualInformationEngine:
+
+    def __init__(self, bins: str | int | list = "fd", lag: int = 1):
+        """
+        Initialize mutual information engine.
+        
+        Args:
+            bins: Histogram binning method.
+                  String: "fd", "auto", "doane", "rice", "sqrt", "sturges", "stone"
+                  Integer: number of bins for both dimensions
+                  List: [x_bins, y_bins] for separate bin counts
+            lag: Lag for return comparison. Default 1 (r_{t-1} vs r_t).
+        """
+        self.bins = bins
+        self.lag = lag
+
+    def _compute_bins(self, x, y):
+        """
+        Compute bin edges for 2D histogram.
+        
+        Supports adaptive methods (strings) and fixed bin counts (integers/lists).
+        """
+        if isinstance(self.bins, str):
+            # Adaptive method: compute edges independently for each dimension
+            x_edges = np.histogram_bin_edges(x, bins=self.bins)
+            y_edges = np.histogram_bin_edges(y, bins=self.bins)
+            return [x_edges, y_edges]
+        else:
+            # Fixed bins: pass through directly
+            return self.bins
+
+    def compute(self, x, y, series_type: str = "unknown") -> MutualInformationResult:
+        """
+        Compute mutual information between two series.
+        
+        Args:
+            x: First series (e.g., r_{t-1})
+            y: Second series (e.g., r_t)
+            series_type: Label describing what was analyzed
+            
+        Returns:
+            MutualInformationResult with MI, normalized MI, and data
+        """
+        # Clean input
+        x = np.asarray(x, dtype=float)
+        y = np.asarray(y, dtype=float)
+
+        mask = np.isfinite(x) & np.isfinite(y)
+        x = x[mask]
+        y = y[mask]
+
+        n = len(x)
+
+        if n < 200:
+            raise ValueError(
+                f"Need at least 200 observations for reliable MI, got {n}"
+            )
+
+        # Compute adaptive bin edges
+        bins = self._compute_bins(x, y)
+
+        # Joint histogram
+        joint, x_edges, y_edges = np.histogram2d(x, y, bins=bins)
+
+        # Joint probability
+        joint = joint / joint.sum()
+
+        # Marginals
+        px = joint.sum(axis=1)
+        py = joint.sum(axis=0)
+
+        # Mutual information
+        mi = 0.0
+
+        for i in range(len(px)):
+            for j in range(len(py)):
+                if joint[i, j] > 0 and px[i] > 0 and py[j] > 0:
+                    mi += (
+                        joint[i, j]
+                        * np.log2(joint[i, j] / (px[i] * py[j]))
+                    )
+
+        # Entropies for normalization
+        Hx = -np.sum(px[px > 0] * np.log2(px[px > 0]))
+        Hy = -np.sum(py[py > 0] * np.log2(py[py > 0]))
+
+        # Normalized mutual information
+        if Hx > 0 and Hy > 0:
+            normalized = mi / np.sqrt(Hx * Hy)
+        else:
+            normalized = 0.0
+
+        normalized = float(np.clip(normalized, 0.0, 1.0))
+
+        return MutualInformationResult(
+            sample_size=n,
+            mutual_information=float(mi),
+            normalized_mutual_information=normalized,
+            x=x,
+            y=y,
+            series_type=series_type,
+            lag=self.lag,
+        )

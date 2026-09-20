@@ -1,0 +1,9 @@
+# atlas/modules/module038_mutual_information/__init__.py
+"""
+Module 038
+Mutual Information Analysis
+"""
+
+from .module import MutualInformationResearch
+
+__all__ = ["MutualInformationResearch"]

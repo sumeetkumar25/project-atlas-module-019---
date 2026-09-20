@@ -1,0 +1,88 @@
+# atlas/modules/module038_mutual_information/validator.py
+"""
+Module 038 - Mutual Information Validator
+"""
+
+import numpy as np
+
+from .engine import MutualInformationResult
+from .statistics import MutualInformationStatistics
+
+
+class MutualInformationValidator:
+
+    def validate(
+        self,
+        result: MutualInformationResult,
+        statistics: MutualInformationStatistics,
+    ) -> bool:
+
+        issues = []
+
+        if result.sample_size < 200:
+            issues.append(f"Sample size too small: {result.sample_size}")
+
+        if not np.isfinite(result.mutual_information):
+            issues.append(f"MI is not finite: {result.mutual_information}")
+
+        if not np.isfinite(result.normalized_mutual_information):
+            issues.append(f"Normalized MI is not finite: {result.normalized_mutual_information}")
+
+        if not (0.0 <= result.normalized_mutual_information <= 1.0 + 1e-10):
+            issues.append(
+                f"Normalized MI out of [0,1]: {result.normalized_mutual_information:.6f}"
+            )
+
+        if result.mutual_information < 0:
+            issues.append(f"Negative MI: {result.mutual_information:.6f}")
+
+        if len(result.x) != len(result.y):
+            issues.append(f"x/y length mismatch: {len(result.x)} vs {len(result.y)}")
+
+        if len(result.x) != result.sample_size:
+            issues.append(f"Data length mismatch: {len(result.x)} vs sample_size {result.sample_size}")
+
+        if np.isnan(result.x).any() or np.isnan(result.y).any():
+            issues.append("Input contains NaN after cleaning")
+
+        if not result.series_type or result.series_type == "unknown":
+            issues.append("Series type not specified")
+
+        if result.lag < 1:
+            issues.append(f"Invalid lag: {result.lag}")
+
+        if not np.isclose(statistics.mutual_information, result.mutual_information, atol=1e-10):
+            issues.append("MI mismatch")
+
+        if not np.isclose(statistics.normalized_mutual_information, result.normalized_mutual_information, atol=1e-10):
+            issues.append("Normalized MI mismatch")
+
+        if statistics.lag != result.lag:
+            issues.append(f"Lag mismatch: stats={statistics.lag}, result={result.lag}")
+
+        if issues:
+            raise ValueError(
+                f"Mutual Information validation failed with {len(issues)} issue(s):\n" +
+                "\n".join(f"  - {issue}" for issue in issues)
+            )
+
+        return True
+
+
+def run_validation(result, statistics):
+    """Run validation and print results."""
+    validator = MutualInformationValidator()
+
+    print("\n" + "=" * 60)
+    print("MUTUAL INFORMATION VALIDATION")
+    print("=" * 60)
+
+    try:
+        validator.validate(result, statistics)
+        print("\n  ✓ All validation checks passed")
+        print("=" * 60)
+        return True
+    except ValueError as e:
+        print(e)
+        print("=" * 60)
+        return False

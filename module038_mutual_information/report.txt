@@ -1,0 +1,53 @@
+# atlas/modules/module038_mutual_information/report.py
+"""
+Module 038 - Mutual Information Report
+"""
+
+from datetime import datetime
+
+
+class MutualInformationReport:
+
+    @staticmethod
+    def generate(statistics, metadata=None, dataset_name="Unknown") -> str:
+        lines = []
+
+        lines.append("=" * 55)
+        lines.append("MODULE 038")
+        lines.append("MUTUAL INFORMATION ANALYSIS")
+        lines.append("=" * 55)
+        lines.append(f"\nDataset: {dataset_name}")
+
+        lines.append("\n" + "-" * 45)
+        lines.append("RESULTS")
+        lines.append("-" * 45)
+        lines.append(f"  Sample Size:         {statistics.sample_size:,}")
+        lines.append(f"  Lag:                 {statistics.lag}")
+        lines.append(f"  Mutual Information:  {statistics.mutual_information:.6f} bits")
+        lines.append(f"  Normalized MI:       {statistics.normalized_mutual_information:.6f}")
+        lines.append(f"  Series Type:         {statistics.series_type}")
+
+        lines.append("\n" + "-" * 45)
+        lines.append("CLASSIFICATION")
+        lines.append("-" * 45)
+        lines.append(f"  Regime:  {statistics.regime}")
+        lines.append(f"  Detail:  {statistics.regime_detail}")
+
+        lines.append("\n" + "-" * 45)
+        lines.append("VALIDATION")
+        lines.append("-" * 45)
+        lines.append("  Status: PASSED")
+        lines.append(f"\n  Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        lines.append("\n" + "=" * 55)
+        lines.append("END OF REPORT")
+        lines.append("=" * 55)
+
+        return "\n".join(lines)
+
+    @staticmethod
+    def save(report: str, filepath: str):
+        from pathlib import Path
+        path = Path(filepath)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(report)

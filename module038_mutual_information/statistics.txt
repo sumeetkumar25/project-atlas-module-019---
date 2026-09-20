@@ -1,0 +1,85 @@
+# atlas/modules/module038_mutual_information/statistics.py
+"""
+Module 038 - Mutual Information Statistics
+
+Classifies mutual information levels into interpretable dependence regimes.
+"""
+
+from dataclasses import dataclass, asdict
+
+import pandas as pd
+
+from .engine import MutualInformationResult
+
+
+@dataclass
+class MutualInformationStatistics:
+    sample_size: int
+    mutual_information: float
+    normalized_mutual_information: float
+
+    series_type: str = "unknown"
+    lag: int = 1
+
+    regime: str = "Unknown"
+    regime_detail: str = ""
+
+
+class MutualInformationStatisticsEngine:
+
+    METADATA = {
+        "module": 38,
+        "name": "Mutual Information",
+        "version": "1.0.0",
+        "method": "Freedman-Diaconis adaptive binning",
+        "lag": 1,
+    }
+
+    def analyze(self, result: MutualInformationResult) -> MutualInformationStatistics:
+
+        nmi = result.normalized_mutual_information
+
+        if nmi < 0.05:
+            regime = "Independent"
+            regime_detail = "No detectable dependence between lagged returns"
+        elif nmi < 0.15:
+            regime = "Weak Dependence"
+            regime_detail = "Slight dependence between lagged returns"
+        elif nmi < 0.30:
+            regime = "Moderate Dependence"
+            regime_detail = "Notable dependence; returns are not fully independent"
+        else:
+            regime = "Strong Dependence"
+            regime_detail = "Substantial dependence between lagged returns"
+
+        return MutualInformationStatistics(
+            sample_size=result.sample_size,
+            mutual_information=result.mutual_information,
+            normalized_mutual_information=result.normalized_mutual_information,
+            series_type=result.series_type,
+            lag=result.lag,
+            regime=regime,
+            regime_detail=regime_detail,
+        )
+
+    def summary_dataframe(self, stats: MutualInformationStatistics) -> pd.DataFrame:
+        return pd.DataFrame([asdict(stats)])
+
+    def summary_dict(self, stats: MutualInformationStatistics) -> dict:
+        return asdict(stats)
+
+    @staticmethod
+    def cross_dataset_metrics(all_stats: list) -> pd.DataFrame:
+        """Generate cross-dataset comparison metrics."""
+        rows = []
+        for name, stats in all_stats:
+            rows.append({
+                "dataset": name,
+                "series_type": stats.series_type,
+                "lag": stats.lag,
+                "sample_size": stats.sample_size,
+                "mutual_information": round(stats.mutual_information, 6),
+                "normalized_mi": round(stats.normalized_mutual_information, 6),
+                "regime": stats.regime,
+            })
+        return pd.DataFrame(rows)
