@@ -1,0 +1,66 @@
+# atlas/modules/module035_hurst/report.py
+"""
+Module 035 - Hurst Report
+"""
+
+from datetime import datetime
+
+
+class HurstReport:
+
+    @staticmethod
+    def generate(statistics, metadata=None, dataset_name="Unknown") -> str:
+        lines = []
+
+        lines.append("=" * 55)
+        lines.append("MODULE 035")
+        lines.append("HURST EXPONENT ANALYSIS")
+        lines.append("=" * 55)
+        lines.append(f"\nDataset: {dataset_name}")
+
+        lines.append("\n" + "-" * 45)
+        lines.append("RESULTS")
+        lines.append("-" * 45)
+        lines.append(f"  Sample Size:      {statistics.sample_size:,}")
+        lines.append(f"  Hurst Exponent:   {statistics.hurst_exponent:.4f}")
+        lines.append(f"  Expected (H0):    {statistics.expected_random:.2f}")
+        lines.append(f"  Deviation:        {statistics.deviation_from_random:+.4f}")
+        lines.append(f"  R-squared:        {statistics.r_squared:.4f}")
+        lines.append(f"  Windows Used:     {statistics.num_windows}")
+
+        lines.append("\n" + "-" * 45)
+        lines.append("CLASSIFICATION")
+        lines.append("-" * 45)
+        lines.append(f"  Regime:           {statistics.regime}")
+
+        if statistics.is_random_walk:
+            lines.append("  Interpretation:   Returns follow a random walk.")
+            lines.append("                    Past movements do not predict")
+            lines.append("                    future direction.")
+        elif statistics.is_persistent:
+            lines.append("  Interpretation:   Returns are persistent.")
+            lines.append("                    Trends tend to continue.")
+            lines.append("                    Momentum strategies may benefit.")
+        elif statistics.is_mean_reverting:
+            lines.append("  Interpretation:   Returns are mean-reverting.")
+            lines.append("                    Extreme moves tend to reverse.")
+            lines.append("                    Mean-reversion strategies may benefit.")
+
+        lines.append("\n" + "-" * 45)
+        lines.append("VALIDATION")
+        lines.append("-" * 45)
+        lines.append("  Status: PASSED")
+        lines.append(f"\n  Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        lines.append("\n" + "=" * 55)
+        lines.append("END OF REPORT")
+        lines.append("=" * 55)
+
+        return "\n".join(lines)
+
+    @staticmethod
+    def save(report: str, filepath: str):
+        from pathlib import Path
+        path = Path(filepath)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(report)

@@ -1,0 +1,9 @@
+# atlas/modules/module033_garch/__init__.py
+"""
+Module 033
+GARCH(1,1) Volatility Modeling
+"""
+
+from .module import GARCHResearch
+
+__all__ = ["GARCHResearch"]

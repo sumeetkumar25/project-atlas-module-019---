@@ -1,0 +1,1 @@
+python -m atlas.modules.module036_dfa.test_module

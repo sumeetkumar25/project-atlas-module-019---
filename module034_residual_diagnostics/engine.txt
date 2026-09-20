@@ -1,0 +1,110 @@
+# atlas/modules/module034_residual_diagnostics/engine.py
+"""
+Module 034 - Residual Diagnostics Engine
+
+Tests whether GARCH standardized residuals behave like white noise.
+
+If residuals pass: GARCH captured volatility dynamics.
+If residuals fail: additional volatility structure remains unmodeled.
+"""
+
+from dataclasses import dataclass
+
+import numpy as np
+from scipy.stats import jarque_bera, skew, kurtosis
+from statsmodels.stats.diagnostic import acorr_ljungbox
+
+
+# ----------------------------------------------------
+# Result Container
+# ----------------------------------------------------
+
+@dataclass
+class ResidualDiagnosticsResult:
+    sample_size: int
+
+    residual_mean: float
+    residual_variance: float
+    residual_skewness: float
+    residual_kurtosis: float
+
+    jb_statistic: float
+    jb_pvalue: float
+
+    lb_residual_statistic: float
+    lb_residual_pvalue: float
+
+    lb_squared_statistic: float
+    lb_squared_pvalue: float
+
+    standardized_residuals: np.ndarray
+
+
+# ----------------------------------------------------
+# Residual Diagnostics Engine
+# ----------------------------------------------------
+
+class ResidualDiagnosticsEngine:
+
+    def __init__(self, lb_lag: int = 20):
+        self.lb_lag = lb_lag
+
+    def compute(self, standardized_residuals) -> ResidualDiagnosticsResult:
+        """
+        Run full diagnostic battery on standardized residuals.
+        
+        Tests:
+        - Basic statistics (mean, variance, skewness, kurtosis)
+        - Jarque-Bera (normality)
+        - Ljung-Box on residuals (serial correlation)
+        - Ljung-Box on squared residuals (remaining ARCH effects)
+        """
+        # Convert to clean numpy array
+        residuals = np.asarray(standardized_residuals, dtype=float)
+        residuals = residuals[np.isfinite(residuals)]
+
+        n = len(residuals)
+
+        # Basic statistics
+        residual_mean = float(np.mean(residuals))
+        residual_variance = float(np.var(residuals, ddof=1))
+        residual_skewness = float(skew(residuals))
+        residual_kurtosis = float(kurtosis(residuals, fisher=True))
+
+        # Jarque-Bera normality test
+        jb_result = jarque_bera(residuals)
+        jb_statistic = float(jb_result.statistic)
+        jb_pvalue = float(jb_result.pvalue)
+
+        # Ljung-Box on residuals (serial correlation)
+        lb_residual = acorr_ljungbox(
+            residuals,
+            lags=[self.lb_lag],
+            return_df=True,
+        )
+        lb_residual_statistic = float(lb_residual["lb_stat"].iloc[0])
+        lb_residual_pvalue = float(lb_residual["lb_pvalue"].iloc[0])
+
+        # Ljung-Box on squared residuals (remaining ARCH effects)
+        lb_squared = acorr_ljungbox(
+            residuals ** 2,
+            lags=[self.lb_lag],
+            return_df=True,
+        )
+        lb_squared_statistic = float(lb_squared["lb_stat"].iloc[0])
+        lb_squared_pvalue = float(lb_squared["lb_pvalue"].iloc[0])
+
+        return ResidualDiagnosticsResult(
+            sample_size=n,
+            residual_mean=residual_mean,
+            residual_variance=residual_variance,
+            residual_skewness=residual_skewness,
+            residual_kurtosis=residual_kurtosis,
+            jb_statistic=jb_statistic,
+            jb_pvalue=jb_pvalue,
+            lb_residual_statistic=lb_residual_statistic,
+            lb_residual_pvalue=lb_residual_pvalue,
+            lb_squared_statistic=lb_squared_statistic,
+            lb_squared_pvalue=lb_squared_pvalue,
+            standardized_residuals=residuals,
+        )

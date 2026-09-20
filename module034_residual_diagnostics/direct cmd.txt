@@ -1,0 +1,1 @@
+python -m atlas.modules.module034_residual_diagnostics.test_module

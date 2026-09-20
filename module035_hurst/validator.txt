@@ -1,0 +1,159 @@
+# atlas/modules/module035_hurst/validator.py
+"""
+Module 035 - Hurst Validator
+
+FIXED: Allows small tolerance for Hurst exponent range (-0.1 to 1.2)
+       to account for finite-sample estimation error.
+"""
+
+import numpy as np
+
+from .engine import HurstResult
+from .statistics import HurstStatistics
+
+
+class HurstValidator:
+
+    def validate(
+        self,
+        result: HurstResult,
+        statistics: HurstStatistics,
+    ) -> bool:
+
+        issues = []
+
+        # --------------------------------------------------
+        # Sample size
+        # --------------------------------------------------
+
+        if result.sample_size < 200:
+            issues.append(f"Sample size too small: {result.sample_size}")
+
+        # --------------------------------------------------
+        # Hurst exponent range (with tolerance for estimation error)
+        # --------------------------------------------------
+
+        if not (-0.1 < result.hurst_exponent < 1.2):
+            issues.append(
+                f"Hurst exponent out of valid range: {result.hurst_exponent:.4f} "
+                f"(expected -0.1 to 1.2)"
+            )
+
+        # --------------------------------------------------
+        # Window sufficiency
+        # --------------------------------------------------
+
+        if len(result.scales) < 5:
+            issues.append(
+                f"Too few windows for reliable estimation: {len(result.scales)} "
+                f"(minimum 5 required)"
+            )
+
+        # --------------------------------------------------
+        # Array consistency
+        # --------------------------------------------------
+
+        if len(result.scales) != len(result.rs_values):
+            issues.append(
+                f"Scales ({len(result.scales)}) and R/S values "
+                f"({len(result.rs_values)}) length mismatch"
+            )
+
+        if np.isnan(result.rs_values).any():
+            issues.append("R/S values contain NaN")
+
+        if np.isinf(result.rs_values).any():
+            issues.append("R/S values contain Inf")
+
+        # --------------------------------------------------
+        # Regression validity
+        # --------------------------------------------------
+
+        if not np.isfinite(result.slope):
+            issues.append(f"Invalid regression slope: {result.slope}")
+
+        if not np.isfinite(result.intercept):
+            issues.append(f"Invalid regression intercept: {result.intercept}")
+
+        # --------------------------------------------------
+        # Statistics consistency
+        # --------------------------------------------------
+
+        if not np.isclose(
+            statistics.hurst_exponent,
+            result.hurst_exponent,
+            atol=1e-10,
+        ):
+            issues.append(
+                f"Hurst exponent mismatch: "
+                f"stats={statistics.hurst_exponent:.6f}, "
+                f"result={result.hurst_exponent:.6f}"
+            )
+
+        # --------------------------------------------------
+        # Regime classification consistency
+        # --------------------------------------------------
+
+        if statistics.is_random_walk:
+            if not (0.40 <= result.hurst_exponent <= 0.60):
+                issues.append(
+                    f"Random walk classification but H={result.hurst_exponent:.4f} "
+                    f"(expected 0.40-0.60)"
+                )
+        elif statistics.is_persistent:
+            if result.hurst_exponent <= 0.50:
+                issues.append(
+                    f"Persistent classification but H={result.hurst_exponent:.4f} "
+                    f"(expected > 0.50)"
+                )
+        elif statistics.is_mean_reverting:
+            if result.hurst_exponent >= 0.50:
+                issues.append(
+                    f"Mean-reverting classification but H={result.hurst_exponent:.4f} "
+                    f"(expected < 0.50)"
+                )
+
+        # --------------------------------------------------
+        # Series type
+        # --------------------------------------------------
+
+        if not result.series_type or result.series_type == "unknown":
+            issues.append("Series type not specified")
+
+        if statistics.series_type != result.series_type:
+            issues.append(
+                f"Series type mismatch: "
+                f"stats={statistics.series_type}, "
+                f"result={result.series_type}"
+            )
+
+        # --------------------------------------------------
+        # Raise if issues found
+        # --------------------------------------------------
+
+        if issues:
+            raise ValueError(
+                f"Hurst validation failed with {len(issues)} issue(s):\n" +
+                "\n".join(f"  - {issue}" for issue in issues)
+            )
+
+        return True
+
+
+def run_validation(result, statistics):
+    """Run validation and print results."""
+    validator = HurstValidator()
+
+    print("\n" + "=" * 60)
+    print("HURST VALIDATION")
+    print("=" * 60)
+
+    try:
+        validator.validate(result, statistics)
+        print("\n  ✓ All validation checks passed")
+        print("=" * 60)
+        return True
+    except ValueError as e:
+        print(e)
+        print("=" * 60)
+        return False

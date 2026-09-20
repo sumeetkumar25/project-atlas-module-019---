@@ -1,0 +1,126 @@
+# atlas/modules/module035_hurst/engine.py
+"""
+Module 035 - Hurst Exponent Engine
+
+Estimates the Hurst exponent using the classical
+Rescaled Range (R/S) method.
+
+The engine is series-agnostic - it analyzes whatever series is provided.
+The module decides whether to pass prices or returns.
+
+Interpretation:
+  H ≈ 0.50  Random Walk
+  H > 0.50  Persistent (trending)
+  H < 0.50  Mean-Reverting
+"""
+
+from dataclasses import dataclass
+
+import numpy as np
+
+
+# ----------------------------------------------------
+# Result Container
+# ----------------------------------------------------
+
+@dataclass
+class HurstResult:
+    sample_size: int
+    hurst_exponent: float
+    slope: float
+    intercept: float
+    scales: np.ndarray
+    rs_values: np.ndarray
+    series_type: str = "unknown"
+
+
+# ----------------------------------------------------
+# Hurst Engine
+# ----------------------------------------------------
+
+class HurstEngine:
+
+    def __init__(
+        self,
+        min_window: int = 16,
+        max_window: int | None = None,
+        num_windows: int = 20,
+    ):
+        self.min_window = min_window
+        self.max_window = max_window
+        self.num_windows = num_windows
+
+    def compute(self, series, series_type: str = "unknown") -> HurstResult:
+        """
+        Compute Hurst exponent using R/S method.
+        
+        Args:
+            series: Time series data (returns, prices, or any sequence)
+            series_type: Label describing what was analyzed ("log_returns", "close_prices", etc.)
+            
+        Returns:
+            HurstResult with exponent, slope, intercept, and scale data
+        """
+        series = np.asarray(series, dtype=float)
+        series = series[np.isfinite(series)]
+        n = len(series)
+
+        if n < 200:
+            raise ValueError(
+                f"Need at least 200 observations for reliable R/S estimation, got {n}"
+            )
+
+        max_window = self.max_window or n // 4
+        windows = np.unique(
+            np.logspace(
+                np.log10(self.min_window),
+                np.log10(max_window),
+                self.num_windows,
+            ).astype(int)
+        )
+
+        rs_values = []
+        valid_windows = []
+
+        for window in windows:
+            num_blocks = n // window
+
+            if num_blocks < 2:
+                continue
+
+            block_rs = []
+
+            for i in range(num_blocks):
+                start = i * window
+                end = start + window
+                block = series[start:end]
+
+                deviation = block - block.mean()
+                cumulative = np.cumsum(deviation)
+                R = cumulative.max() - cumulative.min()
+                S = block.std(ddof=1)
+
+                if S > 0:
+                    block_rs.append(R / S)
+
+            if block_rs:
+                rs_values.append(np.mean(block_rs))
+                valid_windows.append(window)
+
+        scales = np.asarray(valid_windows)
+        rs_values = np.asarray(rs_values)
+
+        x = np.log(scales)
+        y = np.log(rs_values)
+
+        slope, intercept = np.polyfit(x, y, 1)
+
+        return HurstResult(
+            sample_size=n,
+            hurst_exponent=float(slope),
+            slope=float(slope),
+            intercept=float(intercept),
+            scales=scales,
+            rs_values=rs_values,
+            series_type=series_type,
+        )

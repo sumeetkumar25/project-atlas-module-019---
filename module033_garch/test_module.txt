@@ -1,0 +1,296 @@
+# atlas/modules/module033_garch/test_module.py
+"""
+Module 033 Integration Test
+
+Tests the complete Atlas module:
+Engine → Statistics → Validator → Report → Exports → BTC datasets
+"""
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
+
+import numpy as np
+import pandas as pd
+
+from atlas.modules.module033_garch.engine import GARCHEngine
+from atlas.modules.module033_garch.statistics import GARCHStatisticsEngine
+from atlas.modules.module033_garch.validator import run_validation
+from atlas.modules.module033_garch.report import GARCHReport
+from atlas.modules.module033_garch.module import GARCHResearch
+
+
+# ============================================================
+# Datasets
+# ============================================================
+
+DATASETS = {
+    "BTC15m": "data/raw/BTCUSD_15m.csv",
+    "BTC1H": "data/raw/BTCUSD_1h.csv",
+    "BTC4H": "data/raw/BTCUSD_4h.csv",
+}
+
+
+# ============================================================
+# Unit Tests
+# ============================================================
+
+def test_white_noise():
+    """Test GARCH on white noise."""
+    print("\n" + "=" * 60)
+    print("TEST 1: White Noise")
+    print("=" * 60)
+
+    engine = GARCHEngine(p=1, q=1)
+    stats_engine = GARCHStatisticsEngine()
+
+    np.random.seed(42)
+    n = 2000
+    white_noise = pd.Series(np.random.normal(0, 1, n))
+    result = engine.compute(white_noise)
+    stats = stats_engine.analyze(result)
+
+    assert result.sample_size == n
+    assert result.alpha is not None
+    assert result.beta is not None
+    assert stats.stationary
+    assert stats.average_volatility > 0
+
+    print(f"  omega={result.omega:.6f}, alpha={result.alpha:.6f}, beta={result.beta:.6f}")
+    print(f"  persistence={result.persistence:.6f}, stationary={stats.stationary}")
+    print("  ✓ White noise test passed")
+    return True
+
+
+def test_garch_process():
+    """Test GARCH on synthetic GARCH(1,1) data."""
+    print("\n" + "=" * 60)
+    print("TEST 2: Synthetic GARCH(1,1)")
+    print("=" * 60)
+
+    engine = GARCHEngine(p=1, q=1)
+    stats_engine = GARCHStatisticsEngine()
+
+    np.random.seed(42)
+    n = 2000
+
+    omega_true = 0.1
+    alpha_true = 0.1
+    beta_true = 0.8
+
+    returns = np.zeros(n)
+    sigma2 = np.ones(n) * omega_true / (1 - alpha_true - beta_true)
+
+    for t in range(1, n):
+        sigma2[t] = omega_true + alpha_true * returns[t-1]**2 + beta_true * sigma2[t-1]
+        returns[t] = np.sqrt(sigma2[t]) * np.random.normal(0, 1)
+
+    result = engine.compute(pd.Series(returns))
+    stats = stats_engine.analyze(result)
+
+    assert result.alpha > 0
+    assert result.beta > 0
+    assert 0.7 < result.persistence < 1.05
+    assert stats.stationary
+
+    print(f"  True: omega={omega_true}, alpha={alpha_true}, beta={beta_true}")
+    print(f"  Estimated: omega={result.omega:.4f}, alpha={result.alpha:.4f}, beta={result.beta:.4f}")
+    print(f"  Persistence: {result.persistence:.4f}")
+    print("  ✓ GARCH(1,1) test passed")
+    return True
+
+
+def test_validator():
+    """Test validator."""
+    print("\n" + "=" * 60)
+    print("TEST 3: Validator")
+    print("=" * 60)
+
+    engine = GARCHEngine(p=1, q=1)
+    stats_engine = GARCHStatisticsEngine()
+
+    np.random.seed(42)
+    white_noise = pd.Series(np.random.normal(0, 1, 500))
+    result = engine.compute(white_noise)
+    stats = stats_engine.analyze(result)
+
+    passed = run_validation(result, stats)
+    assert passed
+
+    print("  ✓ Validator test passed")
+    return True
+
+
+def test_report():
+    """Test report generation."""
+    print("\n" + "=" * 60)
+    print("TEST 4: Report Generation")
+    print("=" * 60)
+
+    engine = GARCHEngine(p=1, q=1)
+    stats_engine = GARCHStatisticsEngine()
+
+    np.random.seed(42)
+    white_noise = pd.Series(np.random.normal(0, 1, 500))
+    result = engine.compute(white_noise)
+    stats = stats_engine.analyze(result)
+
+    report = GARCHReport.generate(stats, dataset_name="White Noise Test")
+    assert "GARCH(1,1)" in report
+    assert "PARAMETERS" in report
+    assert "INTERPRETATION" in report
+
+    report_path = Path("temp/module033_test_report.txt")
+    GARCHReport.save(report, str(report_path))
+    assert report_path.exists()
+
+    print("  ✓ Report test passed")
+    return True
+
+
+def test_pipeline():
+    """Test full pipeline on synthetic data."""
+    print("\n" + "=" * 60)
+    print("TEST 5: Full Pipeline (Synthetic)")
+    print("=" * 60)
+
+    n = 500
+    np.random.seed(42)
+    close = np.cumsum(np.random.randn(n)) + 100
+    close = np.maximum(close, 1)
+
+    dates = pd.date_range(start="2020-01-01", periods=n, freq="15min")
+    df = pd.DataFrame({
+        "timestamp": dates,
+        "open": close * 0.999,
+        "high": close * 1.002,
+        "low": close * 0.998,
+        "close": close,
+        "volume": np.ones(n) * 100,
+    })
+
+    research = GARCHResearch()
+    result = research.run_dataframe(df, dataset_id="pipeline_test")
+
+    assert result.status == "completed"
+    assert "garch_statistics" in result.artifacts
+    assert "garch_results" in result.artifacts
+    assert "garch_report" in result.artifacts
+    assert result.statistics.get("validation_passed") == True
+
+    print("  ✓ Full pipeline test passed")
+    return True
+
+
+# ============================================================
+# BTC Integration Tests
+# ============================================================
+
+def test_btc_datasets():
+    """Test GARCH on all BTC datasets."""
+    print("\n" + "=" * 60)
+    print("TEST 6: BTC Datasets")
+    print("=" * 60)
+
+    module = GARCHResearch()
+    all_stats = []
+
+    for name, path in DATASETS.items():
+
+        if not Path(path).exists():
+            print(f"\n  ⚠ {name}: File not found - skipping")
+            continue
+
+        print()
+        print("=" * 70)
+        print(name)
+        print("=" * 70)
+
+        result = module.run(path)
+        stats = module.statistics
+
+        all_stats.append((name, stats))
+
+        print()
+        print(f"  Omega        : {stats.omega:.6f}")
+        print(f"  Alpha        : {stats.alpha:.6f}")
+        print(f"  Beta         : {stats.beta:.6f}")
+        print(f"  Persistence  : {stats.persistence:.6f}")
+        print(f"  Stationary   : {stats.stationary}")
+        print(f"  Avg Vol      : {stats.average_volatility:.6f}")
+        print(f"  AIC          : {stats.aic:.2f}")
+        print(f"  BIC          : {stats.bic:.2f}")
+
+        # Scientific constraints
+        assert stats.alpha >= 0, f"Alpha must be >= 0, got {stats.alpha}"
+        assert stats.beta >= 0, f"Beta must be >= 0, got {stats.beta}"
+        assert stats.persistence > 0, f"Persistence must be > 0, got {stats.persistence}"
+        assert stats.average_volatility > 0, f"Average volatility must be > 0"
+        assert stats.maximum_volatility >= stats.minimum_volatility
+        assert stats.sample_size > 100, f"Sample size too small: {stats.sample_size}"
+
+        # Artifact checks
+        assert "garch_statistics" in result.artifacts
+        assert "garch_results" in result.artifacts
+        assert "garch_report" in result.artifacts
+
+        print(f"\n  ✓ {name} validation passed")
+
+    # Cross-dataset comparison
+    if len(all_stats) >= 2:
+        print("\n" + "=" * 70)
+        print("CROSS-DATASET COMPARISON")
+        print("=" * 70)
+
+        comparison = module.stats_engine.cross_dataset_metrics(all_stats)
+        print()
+        print(comparison.to_string(index=False))
+
+        comparison.to_csv("module033_comparison.csv", index=False)
+        print("\n  Comparison saved to module033_comparison.csv")
+
+    return len(all_stats) > 0
+
+
+# ============================================================
+# Main
+# ============================================================
+
+def main():
+    print("\n" + "=" * 70)
+    print("PROJECT ATLAS - MODULE 033 INTEGRATION TEST")
+    print("GARCH(1,1) Volatility Modeling")
+    print("=" * 70)
+
+    results = {}
+
+    results["white_noise"] = test_white_noise()
+    results["garch_process"] = test_garch_process()
+    results["validator"] = test_validator()
+    results["report"] = test_report()
+    results["pipeline"] = test_pipeline()
+    results["btc"] = test_btc_datasets()
+
+    print("\n" + "=" * 70)
+    print("RESULTS")
+    print("=" * 70)
+
+    for name, ok in results.items():
+        print(f"  {'✓' if ok else '✗'} {name}")
+
+    passed = sum(results.values())
+    total = len(results)
+
+    print(f"\n  {passed}/{total} tests passed")
+
+    if passed == total:
+        print("\n✓ Module 033 VALIDATED")
+        return 0
+    else:
+        print("\n⚠ Some tests failed")
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

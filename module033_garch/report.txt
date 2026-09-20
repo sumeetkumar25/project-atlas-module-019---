@@ -1,0 +1,191 @@
+# atlas/modules/module033_garch/report.py
+"""
+Module 033 - GARCH Report
+"""
+
+from datetime import datetime
+
+
+class GARCHReport:
+
+    @staticmethod
+    def generate(
+        statistics,
+        metadata=None,
+        dataset_name="Unknown",
+    ):
+
+        lines = []
+
+        lines.append("=" * 55)
+        lines.append("MODULE 033")
+        lines.append("GARCH(1,1) VOLATILITY MODEL")
+        lines.append("=" * 55)
+
+        lines.append("")
+        lines.append(f"Dataset : {dataset_name}")
+
+        lines.append("")
+        lines.append("-" * 45)
+        lines.append("MODEL")
+        lines.append("-" * 45)
+
+        lines.append("Type : GARCH(1,1)")
+        lines.append("Mean : Zero")
+        lines.append("Distribution : Normal")
+
+        lines.append("")
+        lines.append("-" * 45)
+        lines.append("PARAMETERS")
+        lines.append("-" * 45)
+
+        lines.append(f"Omega        : {statistics.omega:.6f}")
+        lines.append(f"Alpha        : {statistics.alpha:.6f}")
+        lines.append(f"Beta         : {statistics.beta:.6f}")
+        lines.append(f"Persistence  : {statistics.persistence:.6f}")
+
+        if statistics.stationary:
+
+            lines.append("Stationary   : YES")
+
+        else:
+
+            lines.append("Stationary   : NO")
+
+        lines.append("")
+        lines.append("-" * 45)
+        lines.append("VOLATILITY")
+        lines.append("-" * 45)
+
+        lines.append(
+            f"Average : {statistics.average_volatility:.6f}"
+        )
+
+        lines.append(
+            f"Maximum : {statistics.maximum_volatility:.6f}"
+        )
+
+        lines.append(
+            f"Minimum : {statistics.minimum_volatility:.6f}"
+        )
+
+        if statistics.stationary:
+
+            lines.append(
+                f"Long-run Variance : "
+                f"{statistics.long_run_variance:.6f}"
+            )
+
+        else:
+
+            lines.append(
+                "Long-run Variance : Undefined"
+            )
+
+        lines.append("")
+        lines.append("-" * 45)
+        lines.append("MODEL FIT")
+        lines.append("-" * 45)
+
+        lines.append(
+            f"Log Likelihood : "
+            f"{statistics.log_likelihood:.3f}"
+        )
+
+        lines.append(
+            f"AIC            : "
+            f"{statistics.aic:.3f}"
+        )
+
+        lines.append(
+            f"BIC            : "
+            f"{statistics.bic:.3f}"
+        )
+
+        lines.append("")
+        lines.append("-" * 45)
+        lines.append("INTERPRETATION")
+        lines.append("-" * 45)
+
+        p = statistics.persistence
+
+        if p < 0.70:
+
+            lines.append(
+                "Low volatility persistence."
+            )
+
+        elif p < 0.90:
+
+            lines.append(
+                "Moderate volatility persistence."
+            )
+
+        elif p < 0.98:
+
+            lines.append(
+                "High volatility persistence."
+            )
+
+        else:
+
+            lines.append(
+                "Extremely persistent volatility."
+            )
+
+        lines.append("")
+
+        if statistics.stationary:
+
+            lines.append(
+                "The volatility process is stationary."
+            )
+
+        else:
+
+            lines.append(
+                "The volatility process is non-stationary."
+            )
+
+        lines.append("")
+        lines.append("-" * 45)
+        lines.append("VALIDATION")
+        lines.append("-" * 45)
+
+        lines.append("Status : PASSED")
+
+        lines.append("")
+        lines.append(
+            f"Generated : "
+            f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        )
+
+        lines.append("")
+        lines.append("=" * 55)
+        lines.append("END OF REPORT")
+        lines.append("=" * 55)
+
+        return "\n".join(lines)
+
+    @staticmethod
+    def save(
+        report,
+        filepath,
+    ):
+
+        from pathlib import Path
+
+        path = Path(filepath)
+
+        path.parent.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        with open(
+            path,
+            "w",
+            encoding="utf-8",
+        ) as f:
+
+            f.write(report)

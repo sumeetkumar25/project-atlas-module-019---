@@ -1,0 +1,117 @@
+# atlas/modules/module033_garch/engine.py
+"""
+Module 033 - GARCH Engine
+
+GARCH(1,1) Volatility Modeling for BTC returns.
+
+FIXED: Adaptive scaling to eliminate DataScaleWarning.
+       Stores convergence status for validation.
+"""
+
+from dataclasses import dataclass, field
+
+import numpy as np
+import pandas as pd
+from arch import arch_model
+
+
+# ----------------------------------------------------
+# Result Container
+# ----------------------------------------------------
+
+@dataclass
+class GARCHResult:
+    omega: float
+    alpha: float
+    beta: float
+    persistence: float
+    long_run_variance: float
+
+    conditional_volatility: np.ndarray
+    standardized_residuals: np.ndarray
+
+    log_likelihood: float
+    aic: float
+    bic: float
+
+    sample_size: int
+    scale_factor: float
+    convergence_flag: int
+    converged: bool
+
+
+# ----------------------------------------------------
+# GARCH Engine
+# ----------------------------------------------------
+
+class GARCHEngine:
+
+    def __init__(self, p: int = 1, q: int = 1, mean: str = "Zero"):
+        self.p = p
+        self.q = q
+        self.mean = mean
+
+    @staticmethod
+    def compute_log_returns(close: pd.Series) -> pd.Series:
+        returns = np.log(close / close.shift(1))
+        return returns.dropna()
+
+    def compute(self, returns: pd.Series) -> GARCHResult:
+        # Adaptive scaling to eliminate DataScaleWarning
+        std = returns.std()
+
+        if std < 0.10:
+            scale_factor = 1000.0
+        elif std < 1.0:
+            scale_factor = 100.0
+        else:
+            scale_factor = 1.0
+
+        scaled_returns = returns * scale_factor
+
+        # Fit GARCH(1,1) model
+        model = arch_model(
+            scaled_returns,
+            mean=self.mean,
+            vol="GARCH",
+            p=self.p,
+            q=self.q,
+            dist="normal"
+        )
+
+        fit = model.fit(disp="off")
+
+        # Extract parameters
+        omega = float(fit.params.get("omega", np.nan))
+        alpha = float(fit.params.get("alpha[1]", np.nan))
+        beta = float(fit.params.get("beta[1]", np.nan))
+
+        # Persistence and stationarity
+        persistence = alpha + beta
+
+        # Long-run variance (only if stationary)
+        if persistence < 1.0:
+            long_run_variance = omega / (1.0 - persistence)
+        else:
+            long_run_variance = np.nan
+
+        # Convergence status
+        convergence_flag = int(fit.convergence_flag)
+        converged = convergence_flag == 0
+
+        return GARCHResult(
+            omega=omega,
+            alpha=alpha,
+            beta=beta,
+            persistence=persistence,
+            long_run_variance=long_run_variance,
+            conditional_volatility=fit.conditional_volatility,
+            standardized_residuals=fit.std_resid,
+            log_likelihood=float(fit.loglikelihood),
+            aic=float(fit.aic),
+            bic=float(fit.bic),
+            sample_size=len(returns),
+            scale_factor=scale_factor,
+            convergence_flag=convergence_flag,
+            converged=converged,
+        )

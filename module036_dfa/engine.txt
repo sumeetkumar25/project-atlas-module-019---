@@ -1,0 +1,136 @@
+# atlas/modules/module036_dfa/engine.py
+"""
+Module 036 - DFA Engine
+
+Detrended Fluctuation Analysis for long-range dependence.
+
+Unlike Hurst R/S, DFA removes local trends before measuring scaling,
+making it more robust to non-stationarities.
+
+Interpretation:
+  α ≈ 0.50  Random Walk
+  α > 0.50  Persistent (long memory)
+  α < 0.50  Mean-Reverting (anti-persistence)
+"""
+
+from dataclasses import dataclass
+
+import numpy as np
+
+
+# ----------------------------------------------------
+# Result Container
+# ----------------------------------------------------
+
+@dataclass
+class DFAResult:
+    sample_size: int
+    alpha: float
+    slope: float
+    intercept: float
+    scales: np.ndarray
+    fluctuation: np.ndarray
+    series_type: str = "unknown"
+
+
+# ----------------------------------------------------
+# DFA Engine
+# ----------------------------------------------------
+
+class DFAEngine:
+
+    def __init__(
+        self,
+        min_window: int = 16,
+        max_window: int | None = None,
+        num_windows: int = 20,
+    ):
+        self.min_window = min_window
+        self.max_window = max_window
+        self.num_windows = num_windows
+
+    def compute(self, series, series_type: str = "unknown") -> DFAResult:
+        """
+        Compute DFA scaling exponent.
+        
+        Args:
+            series: Time series data (typically returns)
+            series_type: Label describing what was analyzed
+            
+        Returns:
+            DFAResult with alpha, slope, intercept, and scale data
+        """
+        # Clean input
+        series = np.asarray(series, dtype=float)
+        series = series[np.isfinite(series)]
+        n = len(series)
+
+        if n < 200:
+            raise ValueError(
+                f"Need at least 200 observations for reliable DFA, got {n}"
+            )
+
+        # Build integrated profile (key DFA step)
+        profile = np.cumsum(series - np.mean(series))
+
+        # Determine window sizes
+        max_window = self.max_window or n // 4
+        windows = np.unique(
+            np.logspace(
+                np.log10(self.min_window),
+                np.log10(max_window),
+                self.num_windows,
+            ).astype(int)
+        )
+
+        # Compute fluctuation function for each window
+        fluctuation = []
+        valid_windows = []
+
+        for window in windows:
+            num_segments = n // window
+
+            if num_segments < 2:
+                continue
+
+            segment_rms = []
+
+            for i in range(num_segments):
+                start = i * window
+                end = start + window
+                segment = profile[start:end]
+
+                # Detrend: fit and remove linear trend
+                x = np.arange(window)
+                coeff = np.polyfit(x, segment, 1)
+                trend = np.polyval(coeff, x)
+                residual = segment - trend
+
+                # Root mean square
+                rms = np.sqrt(np.mean(residual ** 2))
+                segment_rms.append(rms)
+
+            # Average fluctuation for this window
+            F = np.sqrt(np.mean(np.square(segment_rms)))
+            fluctuation.append(F)
+            valid_windows.append(window)
+
+        # Convert to arrays
+        scales = np.asarray(valid_windows)
+        fluctuation = np.asarray(fluctuation)
+
+        # Log-log regression
+        x = np.log(scales)
+        y = np.log(fluctuation)
+
+        slope, intercept = np.polyfit(x, y, 1)
+
+        return DFAResult(
+            sample_size=n,
+            alpha=float(slope),
+            slope=float(slope),
+            intercept=float(intercept),
+            scales=scales,
+            fluctuation=fluctuation,
+            series_type=series_type,
+        )

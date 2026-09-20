@@ -1,0 +1,92 @@
+# atlas/modules/module034_residual_diagnostics/report.py
+"""
+Module 034 - Residual Diagnostics Report
+"""
+
+from datetime import datetime
+
+
+class ResidualDiagnosticsReport:
+
+    @staticmethod
+    def generate(statistics, metadata=None, dataset_name="Unknown") -> str:
+        lines = []
+
+        lines.append("=" * 55)
+        lines.append("MODULE 034")
+        lines.append("STANDARDIZED RESIDUAL DIAGNOSTICS")
+        lines.append("=" * 55)
+        lines.append(f"\nDataset: {dataset_name}")
+
+        lines.append("\n" + "-" * 45)
+        lines.append("RESIDUAL STATISTICS")
+        lines.append("-" * 45)
+        lines.append(f"  Sample Size:  {statistics.sample_size:,}")
+        lines.append(f"  Mean:         {statistics.residual_mean:.6f}")
+        lines.append(f"  Variance:     {statistics.residual_variance:.6f}")
+        lines.append(f"  Skewness:     {statistics.residual_skewness:.4f}")
+        lines.append(f"  Kurtosis:     {statistics.residual_kurtosis:.4f}")
+
+        lines.append("\n" + "-" * 45)
+        lines.append("DIAGNOSTIC TESTS")
+        lines.append("-" * 45)
+
+        lines.append("\n  Jarque-Bera (Normality):")
+        lines.append(f"    Statistic: {statistics.jb_statistic:.4f}")
+        lines.append(f"    p-value:   {statistics.jb_pvalue:.6f}")
+        if statistics.normality_rejected:
+            lines.append(f"    Result:    NON-NORMAL (p < 0.05)")
+        else:
+            lines.append(f"    Result:    Normal (p >= 0.05)")
+
+        lines.append("\n  Ljung-Box on Residuals (Serial Correlation):")
+        lines.append(f"    Statistic: {statistics.lb_residual_statistic:.4f}")
+        lines.append(f"    p-value:   {statistics.lb_residual_pvalue:.6f}")
+        if statistics.serial_correlation_rejected:
+            lines.append(f"    Result:    SERIAL CORRELATION DETECTED (p < 0.05)")
+        else:
+            lines.append(f"    Result:    No serial correlation (p >= 0.05)")
+
+        lines.append("\n  Ljung-Box on Squared Residuals (Remaining ARCH):")
+        lines.append(f"    Statistic: {statistics.lb_squared_statistic:.4f}")
+        lines.append(f"    p-value:   {statistics.lb_squared_pvalue:.6f}")
+        if statistics.arch_remaining_rejected:
+            lines.append(f"    Result:    ARCH EFFECTS REMAIN (p < 0.05)")
+        else:
+            lines.append(f"    Result:    No remaining ARCH effects (p >= 0.05)")
+
+        lines.append("\n" + "-" * 45)
+        lines.append("OVERALL ASSESSMENT")
+        lines.append("-" * 45)
+
+        if statistics.all_tests_passed:
+            lines.append("\n  ✓ All diagnostic tests passed.")
+            lines.append("  GARCH(1,1) adequately captures")
+            lines.append("  BTC volatility dynamics.")
+        else:
+            lines.append("\n  ⚠ Some diagnostic tests failed.")
+            if statistics.normality_rejected:
+                lines.append("  - Residuals are non-normal (expected for BTC)")
+            if statistics.serial_correlation_rejected:
+                lines.append("  - Serial correlation in residuals")
+            if statistics.arch_remaining_rejected:
+                lines.append("  - Remaining ARCH effects (consider higher-order GARCH)")
+
+        lines.append("\n" + "-" * 45)
+        lines.append("VALIDATION")
+        lines.append("-" * 45)
+        lines.append("  Status: PASSED")
+        lines.append(f"\n  Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        lines.append("\n" + "=" * 55)
+        lines.append("END OF REPORT")
+        lines.append("=" * 55)
+
+        return "\n".join(lines)
+
+    @staticmethod
+    def save(report: str, filepath: str):
+        from pathlib import Path
+        path = Path(filepath)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(report)

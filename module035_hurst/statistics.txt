@@ -1,0 +1,114 @@
+# atlas/modules/module035_hurst/statistics.py
+"""
+Module 035 - Hurst Statistics
+
+FIXED: Includes series_type in statistics and cross-dataset metrics.
+"""
+
+from dataclasses import dataclass, asdict
+
+import numpy as np
+import pandas as pd
+
+from .engine import HurstResult
+
+
+@dataclass
+class HurstStatistics:
+    sample_size: int
+    hurst_exponent: float
+    slope: float
+    intercept: float
+
+    series_type: str = "unknown"
+
+    expected_random: float = 0.50
+    deviation_from_random: float = 0.0
+
+    regime: str = "Unknown"
+    is_persistent: bool = False
+    is_mean_reverting: bool = False
+    is_random_walk: bool = False
+
+    r_squared: float = 0.0
+    num_windows: int = 0
+
+
+class HurstStatisticsEngine:
+
+    METADATA = {
+        "module": 35,
+        "name": "Hurst Exponent",
+        "version": "1.0.0",
+        "method": "Rescaled Range (R/S)",
+        "min_window": 16,
+    }
+
+    def analyze(self, result: HurstResult) -> HurstStatistics:
+
+        H = result.hurst_exponent
+        expected = 0.50
+        deviation = H - expected
+
+        if 0.45 <= H <= 0.55:
+            regime = "Random Walk"
+            is_persistent = False
+            is_mean_reverting = False
+            is_random_walk = True
+        elif H > 0.55:
+            regime = "Persistent"
+            is_persistent = True
+            is_mean_reverting = False
+            is_random_walk = False
+        else:
+            regime = "Mean-Reverting"
+            is_persistent = False
+            is_mean_reverting = True
+            is_random_walk = False
+
+        x = np.log(result.scales)
+        y = np.log(result.rs_values)
+        if len(x) > 2:
+            corr = np.corrcoef(x, y)[0, 1]
+            r_squared = float(corr ** 2)
+        else:
+            r_squared = 0.0
+
+        return HurstStatistics(
+            sample_size=result.sample_size,
+            hurst_exponent=H,
+            slope=result.slope,
+            intercept=result.intercept,
+            series_type=result.series_type,
+            expected_random=expected,
+            deviation_from_random=round(deviation, 4),
+            regime=regime,
+            is_persistent=is_persistent,
+            is_mean_reverting=is_mean_reverting,
+            is_random_walk=is_random_walk,
+            r_squared=round(r_squared, 4),
+            num_windows=len(result.scales),
+        )
+
+    def summary_dataframe(self, stats: HurstStatistics) -> pd.DataFrame:
+        return pd.DataFrame([asdict(stats)])
+
+    def summary_dict(self, stats: HurstStatistics) -> dict:
+        return asdict(stats)
+
+    @staticmethod
+    def cross_dataset_metrics(all_stats: list) -> pd.DataFrame:
+        """Generate cross-dataset comparison metrics."""
+        rows = []
+        for name, stats in all_stats:
+            rows.append({
+                "dataset": name,
+                "series_type": stats.series_type,
+                "sample_size": stats.sample_size,
+                "hurst_exponent": round(stats.hurst_exponent, 4),
+                "deviation_from_random": stats.deviation_from_random,
+                "regime": stats.regime,
+                "r_squared": stats.r_squared,
+                "num_windows": stats.num_windows,
+            })
+        return pd.DataFrame(rows)

@@ -1,0 +1,128 @@
+"""
+Module 034
+Standardized Residual Diagnostics
+
+Pipeline: residuals → diagnostics → statistics → validation → report → export
+"""
+
+from typing import Optional, Dict, Any
+
+import pandas as pd
+
+from atlas.core.base_research_module import BaseResearchModule
+from atlas.framework.registry import AtlasRegistry
+
+from .engine import ResidualDiagnosticsEngine
+from .statistics import ResidualDiagnosticsStatisticsEngine
+from .validator import run_validation
+from .report import ResidualDiagnosticsReport
+
+
+class ResidualDiagnosticsResearch(BaseResearchModule):
+
+    MODULE_OUTPUT = "module034"
+    METADATA = ResidualDiagnosticsStatisticsEngine.METADATA
+
+    def __init__(self, registry: Optional[AtlasRegistry] = None):
+
+        super().__init__(
+            module_name="Residual Diagnostics",
+            module_version=self.METADATA["version"],
+        )
+
+        self.registry = registry or AtlasRegistry()
+        self.engine = ResidualDiagnosticsEngine(lb_lag=20)
+        self.stats_engine = ResidualDiagnosticsStatisticsEngine()
+        self.result_diag = None
+        self.statistics = None
+
+    def _register_pipeline_steps(self):
+        self.pipeline_steps = [
+            ("diagnostics", self._compute_diagnostics),
+            ("statistics", self._compute_statistics),
+            ("validate", self._validate),
+            ("export", self._export_results),
+        ]
+
+    def _compute_diagnostics(self) -> Dict[str, Any]:
+        self.logger.info("Step 1: Computing residual diagnostics")
+
+        print("\n" + "=" * 70)
+        print("MODULE 034 INPUT")
+        print("=" * 70)
+        print("Columns:", list(self.df.columns))
+        print("Shape:", self.df.shape)
+
+        if "standardized_residuals" not in self.df.columns:
+            raise RuntimeError(
+                "Dependency injection failed.\n"
+                f"Available columns: {list(self.df.columns)}"
+            )
+
+        self.result_diag = self.engine.compute(
+            self.df["standardized_residuals"]
+        )
+        
+        self.logger.metric("Sample size", f"{self.result_diag.sample_size:,}")
+        self.logger.metric("Skewness", f"{self.result_diag.residual_skewness:.4f}")
+        self.logger.metric("Kurtosis", f"{self.result_diag.residual_kurtosis:.4f}")
+        self.logger.metric("JB p-value", f"{self.result_diag.jb_pvalue:.6f}")
+        self.logger.metric("LB residual p", f"{self.result_diag.lb_residual_pvalue:.6f}")
+        self.logger.metric("LB squared p", f"{self.result_diag.lb_squared_pvalue:.6f}")
+        self.logger.success("Diagnostics computed")
+        return {"sample_size": self.result_diag.sample_size}
+
+    def _compute_statistics(self) -> Dict[str, Any]:
+        self.logger.info("Step 2: Computing statistics")
+        self.statistics = self.stats_engine.analyze(self.result_diag)
+        self.logger.metric("Normality rejected", str(self.statistics.normality_rejected))
+        self.logger.metric("Serial corr rejected", str(self.statistics.serial_correlation_rejected))
+        self.logger.metric("ARCH remaining", str(self.statistics.arch_remaining_rejected))
+        self.logger.metric("All tests passed", str(self.statistics.all_tests_passed))
+        self.logger.success("Statistics computed")
+        return self.stats_engine.summary_dict(self.statistics)
+
+    def _validate(self) -> Dict[str, Any]:
+        self.logger.info("Step 3: Validation")
+        passed = run_validation(self.result_diag, self.statistics)
+        self.logger.success("Validation complete")
+        return {"validation_passed": passed}
+
+    def _export_results(self) -> Dict[str, Any]:
+        self.logger.info("Step 4: Export")
+
+        self.result.artifacts["diagnostics_statistics"] = (
+            self.stats_engine.summary_dataframe(self.statistics)
+        )
+
+        diag_df = pd.DataFrame({
+            "standardized_residuals": self.result_diag.standardized_residuals,
+        })
+        self.result.artifacts["diagnostics_results"] = diag_df
+
+        report = ResidualDiagnosticsReport.generate(
+            self.statistics,
+            metadata=self.METADATA,
+            dataset_name=self.result.dataset_identifier,
+        )
+        self.result.artifacts["diagnostics_report"] = report
+
+        self.logger.metric("Artifacts", str(len(self.result.artifacts)))
+        self.logger.success("Export complete")
+        return {
+            "export_status": "complete",
+            "artifact_count": len(self.result.artifacts),
+        }
+
+    def compute(self) -> Dict[str, Any]:
+        self.logger.section("Residual Diagnostics Pipeline")
+        results = self.execute_pipeline()
+        self.result.status = "completed"
+        self.logger.success("Module 034 complete")
+        return results
+
+    def run(self, filepath: str, output_dir=None):
+        return super().run(filepath, output_dir)
+
+    def run_dataframe(self, df, dataset_id="in_memory", output_dir=None):
+        return super().run_dataframe(df, dataset_id, output_dir)

@@ -1,0 +1,215 @@
+# atlas/modules/module033_garch/validator.py
+"""
+Module 033 - GARCH Validator
+
+Validates GARCH model outputs and statistics.
+
+FIXED: Checks convergence status.
+"""
+
+import numpy as np
+
+from .engine import GARCHResult
+from .statistics import GARCHStatistics
+
+
+class GARCHValidator:
+
+    def validate(
+        self,
+        result: GARCHResult,
+        statistics: GARCHStatistics,
+    ) -> bool:
+
+        issues = []
+
+        # --------------------------------------------------
+        # Convergence check
+        # --------------------------------------------------
+
+        if not result.converged:
+            issues.append(
+                f"Optimizer did not converge (flag={result.convergence_flag})"
+            )
+
+        # --------------------------------------------------
+        # Basic parameter checks
+        # --------------------------------------------------
+
+        if result.sample_size <= 0:
+            issues.append("Invalid sample size")
+
+        if result.scale_factor <= 0:
+            issues.append("Invalid scale factor")
+
+        if np.isnan(result.omega):
+            issues.append("Omega is NaN")
+
+        if np.isnan(result.alpha):
+            issues.append("Alpha is NaN")
+
+        if np.isnan(result.beta):
+            issues.append("Beta is NaN")
+
+        if result.omega < 0:
+            issues.append("Omega must be non-negative")
+
+        if result.alpha < 0:
+            issues.append("Alpha must be non-negative")
+
+        if result.beta < 0:
+            issues.append("Beta must be non-negative")
+
+        # --------------------------------------------------
+        # Persistence
+        # --------------------------------------------------
+
+        expected = result.alpha + result.beta
+
+        if not np.isclose(
+            expected,
+            result.persistence,
+            atol=1e-10,
+        ):
+            issues.append("Persistence mismatch")
+
+        # --------------------------------------------------
+        # Long-run variance
+        # --------------------------------------------------
+
+        if result.persistence < 1:
+
+            expected_lrv = (
+                result.omega /
+                (1 - result.persistence)
+            )
+
+            if not np.isclose(
+                expected_lrv,
+                result.long_run_variance,
+                atol=1e-8,
+            ):
+                issues.append(
+                    "Long-run variance mismatch"
+                )
+
+        else:
+
+            if not np.isnan(result.long_run_variance):
+
+                issues.append(
+                    "Long-run variance should be NaN"
+                )
+
+        # --------------------------------------------------
+        # Arrays
+        # --------------------------------------------------
+
+        if len(result.conditional_volatility) != result.sample_size:
+
+            issues.append(
+                "Conditional volatility length mismatch"
+            )
+
+        if len(result.standardized_residuals) != result.sample_size:
+
+            issues.append(
+                "Standardized residual length mismatch"
+            )
+
+        if np.isnan(result.conditional_volatility).any():
+
+            issues.append(
+                "Conditional volatility contains NaN"
+            )
+
+        if np.isnan(result.standardized_residuals).any():
+
+            issues.append(
+                "Standardized residuals contain NaN"
+            )
+
+        # --------------------------------------------------
+        # Statistics consistency
+        # --------------------------------------------------
+
+        if statistics.stationary != (result.persistence < 1):
+
+            issues.append(
+                "Stationary flag mismatch"
+            )
+
+        if not np.isclose(
+            statistics.average_volatility,
+            np.mean(result.conditional_volatility),
+            atol=1e-8,
+        ):
+            issues.append(
+                "Average volatility mismatch"
+            )
+
+        if not np.isclose(
+            statistics.maximum_volatility,
+            np.max(result.conditional_volatility),
+            atol=1e-8,
+        ):
+            issues.append(
+                "Maximum volatility mismatch"
+            )
+
+        if not np.isclose(
+            statistics.minimum_volatility,
+            np.min(result.conditional_volatility),
+            atol=1e-8,
+        ):
+            issues.append(
+                "Minimum volatility mismatch"
+            )
+
+        if issues:
+
+            raise ValueError(
+
+                "GARCH validation failed:\n\n"
+
+                + "\n".join(
+
+                    f"- {i}" for i in issues
+
+                )
+
+            )
+
+        return True
+
+
+def run_validation(
+    result,
+    statistics,
+):
+
+    validator = GARCHValidator()
+
+    print("\n" + "=" * 60)
+    print("GARCH VALIDATION")
+    print("=" * 60)
+
+    try:
+
+        validator.validate(
+            result,
+            statistics,
+        )
+
+        print("\n  ✓ All validation checks passed")
+        print("=" * 60)
+
+        return True
+
+    except ValueError as e:
+
+        print(e)
+
+        print("=" * 60)
+
+        return False

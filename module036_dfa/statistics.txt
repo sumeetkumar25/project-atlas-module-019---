@@ -1,0 +1,116 @@
+# atlas/modules/module036_dfa/statistics.py
+"""
+Module 036 - DFA Statistics
+
+Interprets DFA scaling exponent with detailed classification.
+"""
+
+from dataclasses import dataclass, asdict
+
+import numpy as np
+import pandas as pd
+
+from .engine import DFAResult
+
+
+@dataclass
+class DFAStatistics:
+    sample_size: int
+    alpha: float
+    slope: float
+    intercept: float
+
+    series_type: str = "unknown"
+
+    expected_random: float = 0.50
+    deviation_from_random: float = 0.0
+
+    regime: str = "Unknown"
+    regime_detail: str = ""
+
+    r_squared: float = 0.0
+    num_windows: int = 0
+
+
+class DFAStatisticsEngine:
+
+    METADATA = {
+        "module": 36,
+        "name": "Detrended Fluctuation Analysis",
+        "version": "1.0.0",
+        "method": "DFA (linear detrending)",
+        "min_window": 16,
+    }
+
+    def analyze(self, result: DFAResult) -> DFAStatistics:
+
+        alpha = result.alpha
+        expected = 0.50
+        deviation = alpha - expected
+
+        # Detailed classification
+        if 0.40 <= alpha <= 0.60:
+            regime = "Random Walk"
+            regime_detail = "No long-range dependence detected"
+        elif 0.60 < alpha <= 0.70:
+            regime = "Weak Persistence"
+            regime_detail = "Mild long memory in returns"
+        elif 0.70 < alpha <= 0.85:
+            regime = "Moderate Persistence"
+            regime_detail = "Significant long memory present"
+        elif alpha > 0.85:
+            regime = "Strong Persistence"
+            regime_detail = "Strong trending behavior with long memory"
+        elif 0.30 <= alpha < 0.40:
+            regime = "Weak Mean Reversion"
+            regime_detail = "Mild anti-persistence detected"
+        else:
+            regime = "Strong Mean Reversion"
+            regime_detail = "Strong anti-persistence / oscillatory behavior"
+
+        # R-squared
+        x = np.log(result.scales)
+        y = np.log(result.fluctuation)
+        if len(x) > 2:
+            corr = np.corrcoef(x, y)[0, 1]
+            r_squared = float(corr ** 2)
+        else:
+            r_squared = 0.0
+
+        return DFAStatistics(
+            sample_size=result.sample_size,
+            alpha=alpha,
+            slope=result.slope,
+            intercept=result.intercept,
+            series_type=result.series_type,
+            expected_random=expected,
+            deviation_from_random=round(deviation, 4),
+            regime=regime,
+            regime_detail=regime_detail,
+            r_squared=round(r_squared, 4),
+            num_windows=len(result.scales),
+        )
+
+    def summary_dataframe(self, stats: DFAStatistics) -> pd.DataFrame:
+        return pd.DataFrame([asdict(stats)])
+
+    def summary_dict(self, stats: DFAStatistics) -> dict:
+        return asdict(stats)
+
+    @staticmethod
+    def cross_dataset_metrics(all_stats: list) -> pd.DataFrame:
+        """Generate cross-dataset comparison metrics."""
+        rows = []
+        for name, stats in all_stats:
+            rows.append({
+                "dataset": name,
+                "series_type": stats.series_type,
+                "sample_size": stats.sample_size,
+                "alpha": round(stats.alpha, 4),
+                "deviation_from_random": stats.deviation_from_random,
+                "regime": stats.regime,
+                "regime_detail": stats.regime_detail,
+                "r_squared": stats.r_squared,
+                "num_windows": stats.num_windows,
+            })
+        return pd.DataFrame(rows)

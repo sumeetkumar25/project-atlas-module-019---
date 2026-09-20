@@ -1,0 +1,136 @@
+"""
+Module 036
+Detrended Fluctuation Analysis
+
+Pipeline: log returns → DFA → statistics → validation → report → export
+"""
+
+from typing import Optional, Dict, Any
+
+import numpy as np
+import pandas as pd
+
+from atlas.core.base_research_module import BaseResearchModule
+from atlas.framework.registry import AtlasRegistry
+
+from .engine import DFAEngine
+from .statistics import DFAStatisticsEngine
+from .validator import run_validation
+from .report import DFAReport
+
+
+class DFAResearch(BaseResearchModule):
+
+    MODULE_OUTPUT = "module036"
+    METADATA = DFAStatisticsEngine.METADATA
+
+    def __init__(self, registry: Optional[AtlasRegistry] = None):
+
+        super().__init__(
+            module_name="DFA Analysis",
+            module_version=self.METADATA["version"],
+        )
+
+        self.registry = registry or AtlasRegistry()
+        self.engine = DFAEngine(min_window=16, num_windows=20)
+        self.stats_engine = DFAStatisticsEngine()
+        self.result_dfa = None
+        self.statistics = None
+
+    def _register_pipeline_steps(self):
+        self.pipeline_steps = [
+            ("dfa", self._compute_dfa),
+            ("statistics", self._compute_statistics),
+            ("validate", self._validate),
+            ("export", self._export_results),
+        ]
+
+    def _compute_dfa(self) -> Dict[str, Any]:
+        self.logger.info("Step 1: Computing DFA on log returns")
+
+        prices = self.df["close"].astype(float)
+        returns = np.diff(np.log(prices))
+        returns = returns[np.isfinite(returns)]
+
+        self.result_dfa = self.engine.compute(returns, series_type="log_returns")
+
+        self.logger.metric("Series type", self.result_dfa.series_type)
+        self.logger.metric("DFA Alpha", f"{self.result_dfa.alpha:.4f}")
+        self.logger.metric("Sample size", f"{self.result_dfa.sample_size:,}")
+        self.logger.metric("Windows", f"{len(self.result_dfa.scales)}")
+        self.logger.success("DFA computed")
+
+        return {
+            "dfa_alpha": self.result_dfa.alpha,
+            "sample_size": self.result_dfa.sample_size,
+            "series_type": self.result_dfa.series_type,
+        }
+
+    def _compute_statistics(self) -> Dict[str, Any]:
+        self.logger.info("Step 2: Computing statistics")
+        self.statistics = self.stats_engine.analyze(self.result_dfa)
+        self.logger.metric("Regime", self.statistics.regime)
+        self.logger.metric("R-squared", f"{self.statistics.r_squared:.4f}")
+        self.logger.success("Statistics computed")
+        return self.stats_engine.summary_dict(self.statistics)
+
+    def _validate(self) -> Dict[str, Any]:
+        self.logger.info("Step 3: Validation")
+        passed = run_validation(self.result_dfa, self.statistics)
+        self.logger.success("Validation complete")
+        return {"validation_passed": passed}
+
+    def _export_results(self) -> Dict[str, Any]:
+        self.logger.info("Step 4: Export")
+
+        self.result.artifacts["dfa_statistics"] = (
+            self.stats_engine.summary_dataframe(self.statistics)
+        )
+
+        dfa_df = pd.DataFrame({
+            "scales": self.result_dfa.scales,
+            "fluctuation": self.result_dfa.fluctuation,
+        })
+        self.result.artifacts["dfa_results"] = dfa_df
+
+        report = DFAReport.generate(
+            self.statistics,
+            metadata=self.METADATA,
+            dataset_name=self.result.dataset_identifier,
+        )
+        self.result.artifacts["dfa_report"] = report
+
+        # ----------------------------------------------------------
+        # Export feature DataFrame for downstream modules
+        # ----------------------------------------------------------
+        feature_df = self.market_df[["timestamp"]].copy()
+
+        feature_df["dfa_alpha"] = self.result_dfa.alpha
+
+        self.result.artifacts["features"] = feature_df
+
+        # Safety checks
+        assert "features" in self.result.artifacts
+        assert "timestamp" in feature_df.columns
+        assert "dfa_alpha" in feature_df.columns
+        assert len(feature_df) == len(self.market_df)
+
+        self.logger.metric("Artifacts", str(len(self.result.artifacts)))
+        self.logger.success("Export complete")
+        return {
+            "export_status": "complete",
+            "artifact_count": len(self.result.artifacts),
+        }
+
+    def compute(self) -> Dict[str, Any]:
+        self.logger.section("DFA Pipeline")
+        results = self.execute_pipeline()
+        self.result.status = "completed"
+        self.logger.success("Module 036 complete")
+        return results
+
+    def run(self, filepath: str, output_dir=None):
+        return super().run(filepath, output_dir)
+
+    def run_dataframe(self, df, dataset_id="in_memory", output_dir=None):
+        return super().run_dataframe(df, dataset_id, output_dir)

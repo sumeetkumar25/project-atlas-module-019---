@@ -1,0 +1,9 @@
+# atlas/modules/module034_residual_diagnostics/__init__.py
+"""
+Module 034
+Standardized Residual Diagnostics
+"""
+
+from .module import ResidualDiagnosticsResearch
+
+__all__ = ["ResidualDiagnosticsResearch"]

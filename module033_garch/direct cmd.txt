@@ -1,0 +1,1 @@
+python -m atlas.modules.module033_garch.test_module

@@ -1,0 +1,9 @@
+# atlas/modules/module036_dfa/__init__.py
+"""
+Module 036
+Detrended Fluctuation Analysis (DFA)
+"""
+
+from .module import DFAResearch
+
+__all__ = ["DFAResearch"]

@@ -1,0 +1,222 @@
+# atlas/modules/module034_residual_diagnostics/test_module.py
+"""
+Module 034 - Integration Test
+
+Tests residual diagnostics engine, statistics, validator, report, and pipeline.
+"""
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
+
+import numpy as np
+import pandas as pd
+
+from atlas.modules.module034_residual_diagnostics.engine import ResidualDiagnosticsEngine
+from atlas.modules.module034_residual_diagnostics.statistics import ResidualDiagnosticsStatisticsEngine
+from atlas.modules.module034_residual_diagnostics.validator import run_validation
+from atlas.modules.module034_residual_diagnostics.report import ResidualDiagnosticsReport
+from atlas.modules.module034_residual_diagnostics.module import ResidualDiagnosticsResearch
+
+
+def test_white_noise_residuals():
+    """Test 1: White noise residuals should pass all tests."""
+    print("\n" + "=" * 60)
+    print("TEST 1: White Noise Residuals")
+    print("=" * 60)
+
+    engine = ResidualDiagnosticsEngine(lb_lag=20)
+    stats_engine = ResidualDiagnosticsStatisticsEngine()
+
+    np.random.seed(42)
+    n = 2000
+    white_noise = np.random.normal(0, 1, n)
+    result = engine.compute(white_noise)
+    stats = stats_engine.analyze(result)
+
+    assert result.sample_size == n
+    assert abs(result.residual_mean) < 0.1
+    assert 0.5 < result.residual_variance < 2.0
+    assert abs(result.residual_skewness) < 0.3
+    assert abs(result.residual_kurtosis) < 0.5
+
+    # White noise should pass all tests
+    assert not stats.serial_correlation_rejected, "White noise should not have serial correlation"
+    assert not stats.arch_remaining_rejected, "White noise should not have ARCH effects"
+
+    print(f"  Skewness: {result.residual_skewness:.4f}")
+    print(f"  Kurtosis: {result.residual_kurtosis:.4f}")
+    print(f"  JB p-value: {result.jb_pvalue:.6f}")
+    print(f"  All tests passed: {stats.all_tests_passed}")
+    print("  ✓ White noise test passed")
+    return True
+
+
+def test_fat_tailed_residuals():
+    """Test 2: Fat-tailed residuals should fail normality but pass serial tests."""
+    print("\n" + "=" * 60)
+    print("TEST 2: Fat-Tailed Residuals")
+    print("=" * 60)
+
+    engine = ResidualDiagnosticsEngine(lb_lag=20)
+    stats_engine = ResidualDiagnosticsStatisticsEngine()
+
+    np.random.seed(42)
+    n = 2000
+    fat_tailed = np.random.standard_t(df=3, size=n)
+    result = engine.compute(fat_tailed)
+    stats = stats_engine.analyze(result)
+
+    # Should fail normality
+    assert stats.normality_rejected, "Fat-tailed should fail normality test"
+
+    # Should pass serial correlation (independent draws)
+    assert not stats.serial_correlation_rejected, "Independent draws should not have serial correlation"
+
+    print(f"  Kurtosis: {result.residual_kurtosis:.4f}")
+    print(f"  JB p-value: {result.jb_pvalue:.6f}")
+    print(f"  Normality rejected: {stats.normality_rejected}")
+    print(f"  Serial corr rejected: {stats.serial_correlation_rejected}")
+    print("  ✓ Fat-tailed test passed")
+    return True
+
+
+def test_arch_residuals():
+    """Test 3: ARCH residuals should fail LB squared test."""
+    print("\n" + "=" * 60)
+    print("TEST 3: ARCH Residuals")
+    print("=" * 60)
+
+    engine = ResidualDiagnosticsEngine(lb_lag=20)
+    stats_engine = ResidualDiagnosticsStatisticsEngine()
+
+    np.random.seed(42)
+    n = 2000
+
+    omega, alpha = 0.1, 0.7
+    returns = np.zeros(n)
+    sigma2 = np.ones(n) * omega
+    for t in range(1, n):
+        sigma2[t] = omega + alpha * returns[t-1]**2
+        returns[t] = np.sqrt(sigma2[t]) * np.random.normal(0, 1)
+
+    result = engine.compute(returns)
+    stats = stats_engine.analyze(result)
+
+    assert stats.arch_remaining_rejected, "ARCH process should fail LB squared test"
+
+    print(f"  LB squared p-value: {result.lb_squared_pvalue:.6f}")
+    print(f"  ARCH remaining: {stats.arch_remaining_rejected}")
+    print("  ✓ ARCH residuals test passed")
+    return True
+
+
+def test_validator():
+    """Test 4: Validator."""
+    print("\n" + "=" * 60)
+    print("TEST 4: Validator")
+    print("=" * 60)
+
+    engine = ResidualDiagnosticsEngine(lb_lag=20)
+    stats_engine = ResidualDiagnosticsStatisticsEngine()
+
+    np.random.seed(42)
+    white_noise = np.random.normal(0, 1, 500)
+    result = engine.compute(white_noise)
+    stats = stats_engine.analyze(result)
+
+    passed = run_validation(result, stats)
+    assert passed
+    print("  ✓ Validator test passed")
+    return True
+
+
+def test_report():
+    """Test 5: Report generation."""
+    print("\n" + "=" * 60)
+    print("TEST 5: Report Generation")
+    print("=" * 60)
+
+    engine = ResidualDiagnosticsEngine(lb_lag=20)
+    stats_engine = ResidualDiagnosticsStatisticsEngine()
+
+    np.random.seed(42)
+    white_noise = np.random.normal(0, 1, 500)
+    result = engine.compute(white_noise)
+    stats = stats_engine.analyze(result)
+
+    report = ResidualDiagnosticsReport.generate(stats, dataset_name="Test")
+    assert "DIAGNOSTIC TESTS" in report
+    assert "OVERALL ASSESSMENT" in report
+
+    report_path = Path("temp/module034_test_report.txt")
+    ResidualDiagnosticsReport.save(report, str(report_path))
+    assert report_path.exists()
+
+    print("  ✓ Report test passed")
+    return True
+
+
+def test_pipeline():
+    """Test 6: Full pipeline."""
+    print("\n" + "=" * 60)
+    print("TEST 6: Full Pipeline")
+    print("=" * 60)
+
+    n = 500
+    np.random.seed(42)
+    df = pd.DataFrame({
+        "standardized_residuals": np.random.normal(0, 1, n),
+    })
+
+    research = ResidualDiagnosticsResearch()
+    result = research.run_dataframe(df, dataset_id="pipeline_test")
+
+    assert result.status == "completed"
+    assert "diagnostics_statistics" in result.artifacts
+    assert "diagnostics_results" in result.artifacts
+    assert "diagnostics_report" in result.artifacts
+    assert result.statistics.get("validation_passed") == True
+
+    print("  ✓ Full pipeline test passed")
+    return True
+
+
+def main():
+    print("\n" + "=" * 70)
+    print("PROJECT ATLAS - MODULE 034 INTEGRATION TEST")
+    print("Standardized Residual Diagnostics")
+    print("=" * 70)
+
+    results = {}
+
+    results["white_noise"] = test_white_noise_residuals()
+    results["fat_tailed"] = test_fat_tailed_residuals()
+    results["arch_residuals"] = test_arch_residuals()
+    results["validator"] = test_validator()
+    results["report"] = test_report()
+    results["pipeline"] = test_pipeline()
+
+    print("\n" + "=" * 70)
+    print("RESULTS")
+    print("=" * 70)
+
+    for name, ok in results.items():
+        print(f"  {'✓' if ok else '✗'} {name}")
+
+    passed = sum(results.values())
+    total = len(results)
+
+    print(f"\n  {passed}/{total} tests passed")
+
+    if passed == total:
+        print("\n✓ Module 034 VALIDATED")
+        return 0
+    else:
+        print("\n⚠ Some tests failed")
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

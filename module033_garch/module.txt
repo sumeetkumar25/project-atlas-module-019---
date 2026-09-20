@@ -1,0 +1,177 @@
+"""
+Module 033
+GARCH(1,1) Volatility Modeling
+
+Pipeline:
+Returns → GARCH Model → Statistics → Validation → Report → Export
+
+FIXED: Reports scale factor and convergence status.
+"""
+
+from typing import Optional, Dict, Any
+
+import pandas as pd
+
+from atlas.core.base_research_module import BaseResearchModule
+from atlas.framework.registry import AtlasRegistry
+
+from .engine import GARCHEngine
+from .statistics import GARCHStatisticsEngine
+from .validator import run_validation
+from .report import GARCHReport
+
+
+class GARCHResearch(BaseResearchModule):
+
+    MODULE_OUTPUT = "module033"
+
+    METADATA = GARCHStatisticsEngine.METADATA
+
+    def __init__(
+        self,
+        registry: Optional[AtlasRegistry] = None,
+    ):
+
+        super().__init__(
+            module_name="GARCH Volatility Model",
+            module_version=self.METADATA["version"],
+        )
+
+        self.registry = registry or AtlasRegistry()
+
+        self.engine = GARCHEngine(p=1, q=1, mean="Zero")
+        self.stats_engine = GARCHStatisticsEngine()
+
+        self.returns = None
+        self.result_garch = None
+        self.statistics = None
+
+    def _register_pipeline_steps(self):
+
+        self.pipeline_steps = [
+
+            ("returns", self._compute_returns),
+
+            ("garch", self._compute_garch),
+
+            ("statistics", self._compute_statistics),
+
+            ("validate", self._validate),
+
+            ("export", self._export_results),
+
+        ]
+
+    def _compute_returns(self):
+
+        self.logger.info("Step 1: Computing log returns")
+
+        self.returns = GARCHEngine.compute_log_returns(self.df["close"])
+
+        self.logger.metric("Observations", f"{len(self.returns):,}")
+        self.logger.success("Returns computed")
+
+        return {"return_observations": len(self.returns)}
+
+    def _compute_garch(self):
+
+        self.logger.info("Step 2: Fitting GARCH(1,1)")
+
+        self.result_garch = self.engine.compute(self.returns)
+
+        self.logger.metric("Scale factor", f"{self.result_garch.scale_factor:.0f}x")
+        self.logger.metric("Converged", str(self.result_garch.converged))
+        self.logger.metric("Omega", f"{self.result_garch.omega:.6f}")
+        self.logger.metric("Alpha", f"{self.result_garch.alpha:.6f}")
+        self.logger.metric("Beta", f"{self.result_garch.beta:.6f}")
+        self.logger.metric("Persistence", f"{self.result_garch.persistence:.6f}")
+
+        if not self.result_garch.converged:
+            self.logger.warning(
+                f"Optimizer did not converge (flag={self.result_garch.convergence_flag})"
+            )
+
+        self.logger.success("GARCH model fitted")
+
+        return {
+            "omega": self.result_garch.omega,
+            "alpha": self.result_garch.alpha,
+            "beta": self.result_garch.beta,
+            "persistence": self.result_garch.persistence,
+            "converged": self.result_garch.converged,
+        }
+
+    def _compute_statistics(self):
+
+        self.logger.info("Step 3: Computing statistics")
+
+        self.statistics = self.stats_engine.analyze(self.result_garch)
+
+        self.logger.metric("Stationary", str(self.statistics.stationary))
+        self.logger.metric("Average Volatility", f"{self.statistics.average_volatility:.6f}")
+        self.logger.metric("Log Likelihood", f"{self.statistics.log_likelihood:.2f}")
+
+        self.logger.success("Statistics computed")
+
+        return self.stats_engine.summary_dict(self.statistics)
+
+    def _validate(self):
+
+        self.logger.info("Step 4: Validation")
+
+        passed = run_validation(self.result_garch, self.statistics)
+
+        self.logger.success("Validation complete")
+
+        return {"validation_passed": passed}
+
+    def _export_results(self):
+
+        self.logger.info("Step 5: Export")
+
+        self.result.artifacts["garch_statistics"] = (
+            self.stats_engine.summary_dataframe(self.statistics)
+        )
+
+        garch_df = pd.DataFrame({
+            "conditional_volatility": self.result_garch.conditional_volatility,
+            "standardized_residuals": self.result_garch.standardized_residuals,
+        })
+
+        self.result.artifacts["garch_results"] = garch_df
+
+        # -------------------------------------------------------
+        # Standardized dependency features for downstream modules
+        # -------------------------------------------------------
+        self.result.artifacts["features"] = garch_df.copy()
+
+        report = GARCHReport.generate(
+            self.statistics,
+            metadata=self.METADATA,
+            dataset_name=self.result.dataset_identifier,
+        )
+
+        self.result.artifacts["garch_report"] = report
+
+        self.logger.metric("Artifacts", str(len(self.result.artifacts)))
+        self.logger.success("Export complete")
+
+        return {
+            "export_status": "complete",
+            "artifact_count": len(self.result.artifacts),
+        }
+
+    def compute(self):
+
+        self.logger.section("GARCH Pipeline")
+        results = self.execute_pipeline()
+        self.result.status = "completed"
+        self.logger.success("Module 033 complete")
+
+        return results
+
+    def run(self, filepath, output_dir=None):
+        return super().run(filepath, output_dir)
+
+    def run_dataframe(self, df, dataset_id="in_memory", output_dir=None):
+        return super().run_dataframe(df, dataset_id, output_dir)

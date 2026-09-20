@@ -1,0 +1,94 @@
+# atlas/modules/module033_garch/statistics.py
+"""
+Module 033 - GARCH Statistics
+
+Computes descriptive statistics from GARCH model results.
+"""
+
+from dataclasses import dataclass, asdict
+
+import numpy as np
+import pandas as pd
+
+from .engine import GARCHResult
+
+
+@dataclass
+class GARCHStatistics:
+    sample_size: int
+
+    omega: float
+    alpha: float
+    beta: float
+    persistence: float
+    long_run_variance: float
+
+    average_volatility: float
+    maximum_volatility: float
+    minimum_volatility: float
+
+    log_likelihood: float
+    aic: float
+    bic: float
+
+    stationary: bool
+
+
+class GARCHStatisticsEngine:
+
+    METADATA = {
+        "module": 33,
+        "name": "GARCH(1,1)",
+        "version": "1.0.0",
+        "model": "GARCH(1,1) with normal innovations",
+    }
+
+    def analyze(self, result: GARCHResult) -> GARCHStatistics:
+
+        avg_vol = float(np.mean(result.conditional_volatility))
+        max_vol = float(np.max(result.conditional_volatility))
+        min_vol = float(np.min(result.conditional_volatility))
+
+        stationary = result.persistence < 1.0
+
+        return GARCHStatistics(
+            sample_size=result.sample_size,
+            omega=result.omega,
+            alpha=result.alpha,
+            beta=result.beta,
+            persistence=result.persistence,
+            long_run_variance=result.long_run_variance,
+            average_volatility=avg_vol,
+            maximum_volatility=max_vol,
+            minimum_volatility=min_vol,
+            log_likelihood=result.log_likelihood,
+            aic=result.aic,
+            bic=result.bic,
+            stationary=stationary,
+        )
+
+    def summary_dataframe(self, stats: GARCHStatistics) -> pd.DataFrame:
+        return pd.DataFrame([asdict(stats)])
+
+    def summary_dict(self, stats: GARCHStatistics) -> dict:
+        return asdict(stats)
+
+    @staticmethod
+    def cross_dataset_metrics(all_stats: list) -> pd.DataFrame:
+        """Generate cross-dataset comparison metrics."""
+        rows = []
+        for name, stats in all_stats:
+            rows.append({
+                "dataset": name,
+                "sample_size": stats.sample_size,
+                "omega": round(stats.omega, 6),
+                "alpha": round(stats.alpha, 6),
+                "beta": round(stats.beta, 6),
+                "persistence": round(stats.persistence, 6),
+                "stationary": stats.stationary,
+                "average_volatility": round(stats.average_volatility, 6),
+                "log_likelihood": round(stats.log_likelihood, 2),
+                "aic": round(stats.aic, 2),
+                "bic": round(stats.bic, 2),
+            })
+        return pd.DataFrame(rows)

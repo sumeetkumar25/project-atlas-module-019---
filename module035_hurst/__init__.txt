@@ -1,0 +1,9 @@
+# atlas/modules/module035_hurst/__init__.py
+"""
+Module 035
+Hurst Exponent Estimation
+"""
+
+from .module import HurstResearch
+
+__all__ = ["HurstResearch"]

@@ -1,0 +1,106 @@
+"""
+Module 034 - Residual Diagnostics Statistics
+
+Computes descriptive statistics and pass/fail assessments.
+"""
+
+from dataclasses import dataclass, asdict
+from typing import Optional
+
+import numpy as np
+import pandas as pd
+
+from .engine import ResidualDiagnosticsResult
+
+
+@dataclass
+class ResidualDiagnosticsStatistics:
+    sample_size: int
+
+    residual_mean: float
+    residual_variance: float
+    residual_skewness: float
+    residual_kurtosis: float
+
+    jb_statistic: float
+    jb_pvalue: float
+    normality_rejected: bool
+
+    lb_residual_statistic: float
+    lb_residual_pvalue: float
+    serial_correlation_rejected: bool
+
+    lb_squared_statistic: float
+    lb_squared_pvalue: float
+    arch_remaining_rejected: bool
+
+    all_tests_passed: bool
+
+
+class ResidualDiagnosticsStatisticsEngine:
+
+    METADATA = {
+        "module": 34,
+        "name": "Residual Diagnostics",
+        "version": "1.0.0",
+        "lb_lag": 20,
+        "depends_on": ["033"],
+    }
+
+    def analyze(self, result: ResidualDiagnosticsResult) -> ResidualDiagnosticsStatistics:
+
+        alpha = 0.05
+
+        normality_rejected = result.jb_pvalue < alpha
+        serial_correlation_rejected = result.lb_residual_pvalue < alpha
+        arch_remaining_rejected = result.lb_squared_pvalue < alpha
+
+        all_tests_passed = not (
+            normality_rejected or
+            serial_correlation_rejected or
+            arch_remaining_rejected
+        )
+
+        return ResidualDiagnosticsStatistics(
+            sample_size=result.sample_size,
+            residual_mean=result.residual_mean,
+            residual_variance=result.residual_variance,
+            residual_skewness=result.residual_skewness,
+            residual_kurtosis=result.residual_kurtosis,
+            jb_statistic=result.jb_statistic,
+            jb_pvalue=result.jb_pvalue,
+            normality_rejected=normality_rejected,
+            lb_residual_statistic=result.lb_residual_statistic,
+            lb_residual_pvalue=result.lb_residual_pvalue,
+            serial_correlation_rejected=serial_correlation_rejected,
+            lb_squared_statistic=result.lb_squared_statistic,
+            lb_squared_pvalue=result.lb_squared_pvalue,
+            arch_remaining_rejected=arch_remaining_rejected,
+            all_tests_passed=all_tests_passed,
+        )
+
+    def summary_dataframe(self, stats: ResidualDiagnosticsStatistics) -> pd.DataFrame:
+        return pd.DataFrame([asdict(stats)])
+
+    def summary_dict(self, stats: ResidualDiagnosticsStatistics) -> dict:
+        return asdict(stats)
+
+    @staticmethod
+    def cross_dataset_metrics(all_stats: list) -> pd.DataFrame:
+        """Generate cross-dataset comparison metrics."""
+        rows = []
+        for name, stats in all_stats:
+            rows.append({
+                "dataset": name,
+                "sample_size": stats.sample_size,
+                "skewness": round(stats.residual_skewness, 4),
+                "kurtosis": round(stats.residual_kurtosis, 4),
+                "jb_pvalue": round(stats.jb_pvalue, 6),
+                "normality_rejected": stats.normality_rejected,
+                "lb_residual_pvalue": round(stats.lb_residual_pvalue, 6),
+                "serial_corr_rejected": stats.serial_correlation_rejected,
+                "lb_squared_pvalue": round(stats.lb_squared_pvalue, 6),
+                "arch_remaining": stats.arch_remaining_rejected,
+                "all_tests_passed": stats.all_tests_passed,
+            })
+        return pd.DataFrame(rows)

@@ -1,0 +1,86 @@
+# atlas/modules/module034_residual_diagnostics/validator.py
+"""
+Module 034 - Residual Diagnostics Validator
+"""
+
+import numpy as np
+
+from .engine import ResidualDiagnosticsResult
+from .statistics import ResidualDiagnosticsStatistics
+
+
+class ResidualDiagnosticsValidator:
+
+    def validate(
+        self,
+        result: ResidualDiagnosticsResult,
+        statistics: ResidualDiagnosticsStatistics,
+    ) -> bool:
+
+        issues = []
+
+        if result.sample_size <= 0:
+            issues.append("Invalid sample size")
+
+        if len(result.standardized_residuals) != result.sample_size:
+            issues.append("Residual length mismatch")
+
+        if np.isnan(result.standardized_residuals).any():
+            issues.append("Residuals contain NaN")
+
+        if not np.isfinite(result.residual_mean):
+            issues.append("Invalid residual mean")
+
+        if result.residual_variance <= 0:
+            issues.append("Residual variance must be positive")
+
+        if not np.isclose(statistics.residual_mean, result.residual_mean, atol=1e-10):
+            issues.append("Mean mismatch")
+
+        if not np.isclose(statistics.residual_variance, result.residual_variance, atol=1e-10):
+            issues.append("Variance mismatch")
+
+        if not np.isclose(statistics.residual_skewness, result.residual_skewness, atol=1e-10):
+            issues.append("Skewness mismatch")
+
+        if not np.isclose(statistics.residual_kurtosis, result.residual_kurtosis, atol=1e-10):
+            issues.append("Kurtosis mismatch")
+
+        if not np.isclose(statistics.jb_statistic, result.jb_statistic, atol=1e-10):
+            issues.append("JB statistic mismatch")
+
+        if not np.isclose(statistics.jb_pvalue, result.jb_pvalue, atol=1e-10):
+            issues.append("JB p-value mismatch")
+
+        if statistics.all_tests_passed != (
+            not statistics.normality_rejected and
+            not statistics.serial_correlation_rejected and
+            not statistics.arch_remaining_rejected
+        ):
+            issues.append("all_tests_passed flag mismatch")
+
+        if issues:
+            raise ValueError(
+                f"Residual diagnostics validation failed with {len(issues)} issue(s):\n" +
+                "\n".join(f"  - {issue}" for issue in issues)
+            )
+
+        return True
+
+
+def run_validation(result, statistics):
+    validator = ResidualDiagnosticsValidator()
+
+    print("\n" + "=" * 60)
+    print("RESIDUAL DIAGNOSTICS VALIDATION")
+    print("=" * 60)
+
+    try:
+        validator.validate(result, statistics)
+        print("\n  ✓ All validation checks passed")
+        print("=" * 60)
+        return True
+    except ValueError as e:
+        print(e)
+        print("=" * 60)
+        return False
