@@ -1,0 +1,245 @@
+# atlas/modules/module020_liquidity_behaviour/module.py
+"""
+Module 020
+Liquidity Behaviour
+
+All 7 steps implemented.
+MODULE_OUTPUT = "module020" for standardized export path.
+"""
+
+from typing import Optional
+
+import pandas as pd
+
+from atlas.core.base_research_module import BaseResearchModule
+from atlas.framework.registry import AtlasRegistry
+
+from atlas.core.liquidity import (
+    LiquidityConcentration,
+    LiquidityNormalizer,
+    LiquidityStateClassifier,
+    LiquidityDepletion,
+    LiquidityStatistics,
+)
+
+from .config import *
+from .protocol import PROTOCOL
+
+
+class LiquidityBehaviourResearch(BaseResearchModule):
+
+    MODULE_OUTPUT = "module020"
+    PROTOCOL = PROTOCOL
+
+    def __init__(
+        self,
+        registry: Optional[AtlasRegistry] = None,
+    ):
+
+        super().__init__(
+            module_name=MODULE_NAME,
+            module_version=MODULE_VERSION,
+        )
+
+        self.registry = registry or AtlasRegistry()
+
+        if not self.registry.get_module(MODULE_ID):
+            self.registry.register_module(PROTOCOL)
+
+        self.liquidity = None
+        self.normalized = None
+        self.states = None
+        self.depletion = None
+        self.statistics = None
+        self.distribution = None
+
+    def _register_pipeline_steps(self):
+
+        self.pipeline_steps = [
+
+            ("concentration", self._concentration),
+
+            ("normalization", self._normalization),
+
+            ("states", self._states),
+
+            ("depletion", self._depletion),
+
+            ("statistics", self._statistics),
+
+            ("distribution", self._distribution),
+
+            ("export", self._export),
+
+        ]
+
+    # ---- Step 1: Concentration ----
+    def _concentration(self):
+
+        self.logger.info("Step 1: Liquidity concentration")
+
+        self.liquidity = LiquidityConcentration.compute(
+            self.df["high"],
+            self.df["low"],
+            self.df["volume"],
+        )
+
+        self.result.artifacts["liquidity_series"] = self.liquidity.to_frame("liquidity")
+
+        return {
+            "concentration_status": "complete",
+            "observations": len(self.liquidity),
+        }
+
+    # ---- Step 2: Normalization ----
+    def _normalization(self):
+
+        self.logger.info("Step 2: Normalization")
+
+        self.normalized = LiquidityNormalizer.normalize(
+            self.liquidity,
+            window=NORMALIZATION_WINDOW,
+        )
+
+        self.result.artifacts["normalized_liquidity"] = self.normalized.to_frame("normalized_liquidity")
+
+        return {
+            "normalization_status": "complete",
+            "valid": int(self.normalized.notna().sum()),
+        }
+
+    # ---- Step 3: States ----
+    def _states(self):
+
+        self.logger.info("Step 3: Liquidity states")
+
+        self.states = LiquidityStateClassifier.classify(self.normalized)
+
+        self.result.artifacts["liquidity_states"] = self.states.to_frame("state")
+
+        counts = self.states.value_counts().sort_index()
+
+        labels = {0: "Very Low", 1: "Low", 2: "Normal", 3: "High", 4: "Extreme"}
+
+        for state, count in counts.items():
+            self.logger.metric(labels.get(state, "State {}".format(state)), "{:,}".format(int(count)))
+
+        return {
+            "states_status": "complete",
+            "very_low": int(counts.get(0, 0)),
+            "low": int(counts.get(1, 0)),
+            "normal": int(counts.get(2, 0)),
+            "high": int(counts.get(3, 0)),
+            "extreme": int(counts.get(4, 0)),
+        }
+
+    # ---- Step 4: Depletion ----
+    def _depletion(self):
+
+        self.logger.info("Step 4: Depletion")
+
+        self.depletion = LiquidityDepletion.compute(self.normalized)
+
+        self.result.artifacts["liquidity_depletion"] = self.depletion.to_frame("depletion")
+
+        return {
+            "depletion_status": "complete",
+            "valid_depletion": int(self.depletion.notna().sum()),
+        }
+
+    # ---- Step 5: Statistics ----
+    def _statistics(self):
+
+        self.logger.info("Step 5: Statistics")
+
+        df = self.normalized.to_frame("liquidity")
+        df["depletion"] = self.depletion
+
+        self.statistics = LiquidityStatistics.summary(df)
+
+        self.result.artifacts["liquidity_statistics"] = pd.DataFrame([self.statistics])
+
+        for k, v in self.statistics.items():
+            if isinstance(v, float):
+                self.logger.metric(k, "{:.4f}".format(v))
+            else:
+                self.logger.metric(k, "{:,}".format(v))
+
+        stats = self.statistics.copy()
+        stats["statistics_status"] = "complete"
+
+        return stats
+
+    # ---- Step 6: Distribution ----
+    def _distribution(self):
+
+        self.logger.info("Step 6: Distribution")
+
+        dist = (
+            self.states
+            .value_counts()
+            .sort_index()
+            .rename_axis("state")
+            .reset_index(name="count")
+        )
+
+        dist["percent"] = dist["count"] / dist["count"].sum() * 100
+
+        self.distribution = dist
+
+        self.result.artifacts["liquidity_distribution"] = dist
+
+        labels = {
+            0: "Very Low",
+            1: "Low",
+            2: "Normal",
+            3: "High",
+            4: "Extreme",
+        }
+
+        for _, row in dist.iterrows():
+            self.logger.info(
+                "  {}: {} ({:.1f}%)".format(
+                    labels.get(
+                        int(row["state"]),
+                        "State {}".format(int(row["state"]))
+                    ),
+                    int(row["count"]),
+                    row["percent"],
+                )
+            )
+
+        return {"distribution_status": "complete"}
+
+    # ---- Step 7: Export ----
+    def _export(self):
+
+        self.logger.info("Step 7: Export")
+
+        self.logger.metric("Artifacts", "{}".format(len(self.result.artifacts)))
+
+        for name, artifact in self.result.artifacts.items():
+            if hasattr(artifact, "__len__"):
+                self.logger.info("  {}: {} rows".format(name, len(artifact)))
+
+        return {
+            "export_status": "complete",
+            "artifact_count": len(self.result.artifacts),
+        }
+
+    def compute(self):
+
+        self.logger.section("Liquidity Behaviour Pipeline")
+        self.logger.info("Executing Steps 1-7")
+
+        results = self.execute_pipeline()
+        self.result.status = "completed"
+        self.logger.success("Module 020 complete")
+
+        return results
+
+    def run(self, filepath: str, output_dir=None):
+        return super().run(filepath, output_dir)
+
+    def run_dataframe(self, df, dataset_id="in_memory", output_dir=None):
+        return super().run_dataframe(df, dataset_id, output_dir)

@@ -1,0 +1,11 @@
+# atlas/modules/module020_liquidity_behaviour/__init__.py
+"""
+Module 020
+Liquidity Behaviour
+"""
+
+from .module import LiquidityBehaviourResearch
+
+__all__ = [
+    "LiquidityBehaviourResearch",
+]

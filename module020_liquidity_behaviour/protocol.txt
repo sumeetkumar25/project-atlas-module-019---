@@ -1,0 +1,101 @@
+# atlas/modules/module020_liquidity_behaviour/protocol.py
+"""
+Module 020 Protocol
+"""
+
+from atlas.framework.protocol import (
+    ResearchProtocol,
+    ModuleCategory,
+)
+
+from .config import MODULE_VERSION
+
+
+PROTOCOL = ResearchProtocol(
+
+    module_id="020",
+
+    module_name="Liquidity Behaviour",
+
+    category=ModuleCategory.PRICE_BEHAVIOR,
+
+    question=(
+        "How does market liquidity behave "
+        "statistically over time?"
+    ),
+
+    hypothesis=(
+        "Liquidity forms measurable "
+        "statistical regimes."
+    ),
+
+    rationale=(
+        "Measure liquidity behaviour "
+        "without constructing "
+        "trading signals."
+    ),
+
+    methodology=(
+        "Liquidity concentration, "
+        "normalization, state "
+        "classification and "
+        "depletion analysis."
+    ),
+
+    statistics=[
+
+        "mean_liquidity",
+
+        "median_liquidity",
+
+        "std_liquidity",
+
+        "mean_depletion",
+
+        "state_distribution",
+
+    ],
+
+    depends_on=[],
+
+    required_datasets=[
+
+        "BTC_15m",
+
+        "BTC_1h",
+
+        "BTC_4h",
+
+    ],
+
+    produces=[
+
+        "liquidity_series",
+
+        "normalized_liquidity",
+
+        "liquidity_states",
+
+        "liquidity_statistics",
+
+        "liquidity_distribution",
+
+    ],
+
+    version=MODULE_VERSION,
+
+    author="Project Atlas",
+
+    limitations=[
+        "Uses rolling normalization.",
+        "State thresholds are quantile-based.",
+        "Measures behaviour only.",
+    ],
+
+    future_research=[
+        "Liquidity-price interaction",
+        "Liquidity-volatility relationship",
+        "Liquidity regime transitions",
+    ],
+
+)

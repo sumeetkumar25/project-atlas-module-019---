@@ -1,0 +1,106 @@
+# atlas/modules/module020_liquidity_behaviour/test_module.py
+"""
+Module 020 Test
+"""
+
+import numpy as np
+import pandas as pd
+
+from atlas.modules.module020_liquidity_behaviour.module import (
+    LiquidityBehaviourResearch,
+)
+
+
+def test_pipeline():
+
+    np.random.seed(42)
+
+    n = 500
+    close = 100 + np.cumsum(np.random.randn(n))
+    close = np.maximum(close, 1)
+
+    df = pd.DataFrame({
+        "timestamp": pd.date_range("2025-01-01", periods=n, freq="15min"),
+        "open": close * 0.999,
+        "high": close + np.random.uniform(0.5, 2, n),
+        "low": close - np.random.uniform(0.5, 2, n),
+        "close": close,
+        "volume": np.random.randint(100, 1000, n),
+    })
+
+    module = LiquidityBehaviourResearch()
+    result = module.run_dataframe(df, dataset_id="pipeline_test")
+
+    stats = result.statistics
+    artifacts = result.artifacts
+
+    checks = 0
+
+    labels = [
+        "Completed",
+        "Concentration complete",
+        "Normalization complete",
+        "States complete",
+        "Depletion complete",
+        "Statistics complete",
+        "Distribution complete",
+        "Export complete",
+        "Liquidity series artifact",
+        "Normalized liquidity artifact",
+        "Liquidity states artifact",
+        "Liquidity statistics artifact",
+        "Liquidity distribution artifact",
+    ]
+
+    total = len(labels)
+
+    if result.status == "completed":
+        checks += 1
+    if stats.get("concentration_status") == "complete":
+        checks += 1
+    if stats.get("normalization_status") == "complete":
+        checks += 1
+    if stats.get("states_status") == "complete":
+        checks += 1
+    if stats.get("depletion_status") == "complete":
+        checks += 1
+    if stats.get("statistics_status") == "complete":
+        checks += 1
+    if stats.get("distribution_status") == "complete":
+        checks += 1
+    if stats.get("export_status") == "complete":
+        checks += 1
+    if "liquidity_series" in artifacts:
+        checks += 1
+    if "normalized_liquidity" in artifacts:
+        checks += 1
+    if "liquidity_states" in artifacts:
+        checks += 1
+    if "liquidity_statistics" in artifacts:
+        checks += 1
+    if "liquidity_distribution" in artifacts:
+        checks += 1
+
+    for i, label in enumerate(labels):
+        print("  {} {}".format("✓" if i < checks else "✗", label))
+
+    artifact_count = stats.get("artifact_count", 0)
+    mean_liq = stats.get("mean", 0)
+
+    print("\n  Artifacts: {}".format(artifact_count))
+    print("  Mean liquidity: {:.4f}".format(mean_liq))
+
+    print("\n  Pipeline: {}/{} passed".format(checks, total))
+    return checks == total
+
+
+if __name__ == "__main__":
+
+    success = test_pipeline()
+
+    if success:
+        print("\n✓ Module 020 VALIDATED")
+        print("✓ All 7 steps implemented")
+        print("✓ Ready to freeze")
+    else:
+        print("\n⚠ Some tests failed")

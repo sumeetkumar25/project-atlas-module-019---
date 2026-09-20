@@ -1,0 +1,17 @@
+# atlas/modules/module020_liquidity_behaviour/config.py
+"""
+Module 020 Configuration
+Liquidity Behaviour
+"""
+
+MODULE_ID = "020"
+
+MODULE_NAME = "Liquidity Behaviour"
+
+MODULE_VERSION = "1.0.0"
+
+# ---------------------------------
+
+NORMALIZATION_WINDOW = 100
+
+MIN_VALID_OBSERVATIONS = 100

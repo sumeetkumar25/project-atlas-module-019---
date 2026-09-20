@@ -1,0 +1,1 @@
+python -m atlas.modules.module020_liquidity_behaviour.test_module
