@@ -1,0 +1,11 @@
+# atlas/modules/module022_market_state/__init__.py
+"""
+Module 022
+Market State
+"""
+
+from .module import MarketStateResearch
+
+__all__ = [
+    "MarketStateResearch",
+]

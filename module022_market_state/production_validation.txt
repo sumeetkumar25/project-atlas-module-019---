@@ -1,0 +1,179 @@
+# atlas/modules/module022_market_state/production_validation.py
+"""
+Module 022 Production Validation
+
+Runs Module 022 on all production datasets.
+
+BTC_15m
+BTC_1h
+BTC_4h
+"""
+
+from pathlib import Path
+
+from atlas.modules.module022_market_state.module import (
+    MarketStateResearch,
+)
+
+# -----------------------------------------------------
+
+DATASETS = {
+
+    "BTC_15m":
+        "data/raw/BTCUSD_15m.csv",
+
+    "BTC_1h":
+        "data/raw/BTCUSD_1h.csv",
+
+    "BTC_4h":
+        "data/raw/BTCUSD_4h.csv",
+
+}
+
+# -----------------------------------------------------
+
+
+def run_dataset(name, path):
+
+    print("\n" + "=" * 70)
+    print(name)
+    print("=" * 70)
+
+    module = MarketStateResearch()
+
+    result = module.run(
+        filepath=path,
+    )
+
+    stats = result.statistics
+
+    print("\nSummary")
+    print("-" * 40)
+
+    print(
+        "Rows: {}".format(
+            stats["observations"]
+        )
+    )
+
+    print(
+        "Trending: {}".format(
+            stats["trending"]
+        )
+    )
+
+    print(
+        "Ranging: {}".format(
+            stats["ranging"]
+        )
+    )
+
+    total = (
+        stats["trending"]
+        + stats["ranging"]
+    )
+
+    if total > 0:
+
+        print(
+            "Trending %: {:.2f}%".format(
+                stats["trending"] / total * 100
+            )
+        )
+
+        print(
+            "Ranging %: {:.2f}%".format(
+                stats["ranging"] / total * 100
+            )
+        )
+
+    print(
+        "Transitions: {}".format(
+            stats["transition_count"]
+        )
+    )
+
+    print(
+        "Artifacts: {}".format(
+            stats["artifact_count"]
+        )
+    )
+
+    return stats
+
+
+def main():
+
+    summary = {}
+
+    for dataset, path in DATASETS.items():
+
+        if not Path(path).exists():
+
+            print(
+                "Missing: {}".format(path)
+            )
+
+            continue
+
+        summary[dataset] = run_dataset(
+            dataset,
+            path,
+        )
+
+    print("\n")
+    print("=" * 70)
+    print("CROSS DATASET SUMMARY")
+    print("=" * 70)
+
+    for name, stats in summary.items():
+
+        total = (
+            stats["trending"]
+            + stats["ranging"]
+        )
+
+        trending_pct = (
+            stats["trending"] / total * 100
+            if total else 0
+        )
+
+        ranging_pct = (
+            stats["ranging"] / total * 100
+            if total else 0
+        )
+
+        print()
+
+        print(name)
+
+        print(
+            "  Trending      : {} ({:.2f}%)".format(
+                stats["trending"],
+                trending_pct,
+            )
+        )
+
+        print(
+            "  Ranging       : {} ({:.2f}%)".format(
+                stats["ranging"],
+                ranging_pct,
+            )
+        )
+
+        print(
+            "  Transitions   : {}".format(
+                stats["transition_count"]
+            )
+        )
+
+        print(
+            "  Artifacts     : {}".format(
+                stats["artifact_count"]
+            )
+        )
+
+
+if __name__ == "__main__":
+
+    main()

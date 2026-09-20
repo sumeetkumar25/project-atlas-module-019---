@@ -1,0 +1,26 @@
+# atlas/modules/module022_market_state/config.py
+"""
+Module 022 Configuration
+Market State
+"""
+
+MODULE_ID = "022"
+
+MODULE_NAME = "Market State"
+
+MODULE_VERSION = "1.3.0"
+
+TREND_LOOKBACK = 20
+
+MIN_VALID_OBSERVATIONS = 100
+
+# ----------------------------
+# Trend Strength Configuration
+# ----------------------------
+
+TREND_STRENGTH_CONFIG = {
+    "normalization": "zscore",
+    "window": 100,
+    "threshold_method": "zscore",
+    "threshold": 1.0,
+}

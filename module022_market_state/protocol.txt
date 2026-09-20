@@ -1,0 +1,74 @@
+# atlas/modules/module022_market_state/protocol.py
+"""
+Module 022 Protocol
+"""
+
+from atlas.framework.protocol import (
+    ResearchProtocol,
+    ModuleCategory,
+)
+
+from .config import MODULE_VERSION
+
+
+PROTOCOL = ResearchProtocol(
+
+    module_id="022",
+
+    module_name="Market State",
+
+    category=ModuleCategory.PRICE_BEHAVIOR,
+
+    question=(
+        "How does the market alternate between trending and ranging states?"
+    ),
+
+    hypothesis=(
+        "Market states exhibit measurable statistical properties."
+    ),
+
+    rationale=(
+        "Quantify market state behaviour without generating trading signals."
+    ),
+
+    methodology=(
+        "Trend detection, state classification, transition analysis, and statistics."
+    ),
+
+    statistics=[
+        "trending_count",
+        "ranging_count",
+        "transition_count",
+    ],
+
+    depends_on=[],
+
+    required_datasets=[
+        "BTC_15m",
+        "BTC_1h",
+        "BTC_4h",
+    ],
+
+    produces=[
+        "market_state",
+        "state_transitions",
+        "market_state_statistics",
+        "market_state_distribution",
+    ],
+
+    version=MODULE_VERSION,
+
+    author="Project Atlas",
+
+    limitations=[
+        "State classification depends on trend detection.",
+        "No predictive model is used.",
+        "Research only.",
+    ],
+
+    future_research=[
+        "Multi-timeframe state alignment",
+        "State-conditional volatility",
+        "State duration analysis",
+    ],
+)

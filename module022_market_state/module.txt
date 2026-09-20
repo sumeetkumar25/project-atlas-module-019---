@@ -1,0 +1,237 @@
+# atlas/modules/module022_market_state/module.py
+"""
+Module 022
+Market State
+
+Refactored: Uses TrendNormalization.apply() and TrendThreshold.apply() registries.
+           All steps return consistent status fields.
+           MODULE_OUTPUT = "module022" for standardized export path.
+"""
+
+from typing import Optional, Dict, Any
+
+import pandas as pd
+
+from atlas.core.base_research_module import BaseResearchModule
+from atlas.framework.registry import AtlasRegistry
+
+from atlas.core.market_state import (
+    MarketStateClassifier,
+    MarketStateTransitions,
+    MarketStateStatistics,
+)
+
+from atlas.core.trend import TrendDetector
+
+from atlas.core.trend_strength import (
+    TrendStrength,
+    TrendNormalization,
+    TrendThreshold,
+    TrendStrengthStatistics,
+)
+
+from .config import *
+from .protocol import PROTOCOL
+
+
+class MarketStateResearch(BaseResearchModule):
+
+    MODULE_OUTPUT = "module022"
+    PROTOCOL = PROTOCOL
+
+    def __init__(self, registry: Optional[AtlasRegistry] = None):
+
+        super().__init__(
+            module_name=MODULE_NAME,
+            module_version=MODULE_VERSION,
+        )
+
+        self.registry = registry or AtlasRegistry()
+
+        existing = self.registry.get_module(MODULE_ID)
+        if not existing:
+            self.registry.register_module(PROTOCOL)
+
+        self.trend = None
+        self.market_state = None
+        self.transitions = None
+
+    def _register_pipeline_steps(self):
+
+        self.pipeline_steps = [
+            ("state_classification", self._state_classification),
+            ("transitions", self._transitions),
+            ("statistics", self._statistics),
+            ("distribution", self._distribution),
+            ("export", self._export),
+        ]
+
+    # ---- Step 1: State Classification ----
+    def _state_classification(self) -> Dict[str, Any]:
+
+        self.logger.info("Step 1: Market State Classification")
+
+        cfg = TREND_STRENGTH_CONFIG
+
+        self.trend = TrendDetector.detect(
+            self.df["close"], lookback=TREND_LOOKBACK
+        )
+
+        strength = TrendStrength.compute(self.trend)
+
+        normalized = TrendNormalization.apply(
+            cfg["normalization"],
+            strength["strength"],
+            window=cfg["window"],
+        )
+
+        self.result.artifacts["trend_strength"] = normalized.to_frame("strength")
+        self.result.artifacts["trend_strength_statistics"] = pd.DataFrame([
+            TrendStrengthStatistics.summary(normalized.dropna())
+        ])
+
+        mask = TrendThreshold.apply(
+            cfg["threshold_method"],
+            normalized,
+            value=cfg["threshold"],
+        )
+
+        self.market_state = MarketStateClassifier.classify(mask.fillna(False))
+
+        self.result.artifacts["market_state"] = self.market_state.to_frame("state")
+
+        counts = self.market_state.value_counts()
+        trending = int(counts.get(1, 0))
+        ranging = int(counts.get(0, 0))
+        total = trending + ranging
+
+        self.logger.metric(
+            "Trending",
+            "{} ({:.1f}%)".format(
+                trending,
+                trending / total * 100 if total > 0 else 0,
+            ),
+        )
+        self.logger.metric(
+            "Ranging",
+            "{} ({:.1f}%)".format(
+                ranging,
+                ranging / total * 100 if total > 0 else 0,
+            ),
+        )
+
+        self.logger.success("State classification complete")
+
+        return {
+            "classification_status": "complete",
+            "trending": trending,
+            "ranging": ranging,
+        }
+
+    # ---- Step 2: State Transitions ----
+    def _transitions(self) -> Dict[str, Any]:
+
+        self.logger.info("Step 2: State Transitions")
+
+        self.transitions = MarketStateTransitions.detect(self.market_state)
+
+        self.result.artifacts["state_transitions"] = self.transitions.to_frame("transition")
+
+        transition_count = int(self.transitions.sum())
+
+        self.logger.metric("Transitions", f"{transition_count:,}")
+        self.logger.success("Transition analysis complete")
+
+        return {
+            "transition_status": "complete",
+            "transition_count": transition_count,
+        }
+
+    # ---- Step 3: Statistics ----
+    def _statistics(self) -> Dict[str, Any]:
+
+        self.logger.info("Step 3: Statistics")
+
+        stats_input = pd.DataFrame({
+            "state": self.market_state,
+            "transition": self.transitions,
+        })
+
+        stats = MarketStateStatistics.summary(stats_input)
+
+        stats_df = pd.DataFrame([stats])
+        self.result.artifacts["market_state_statistics"] = stats_df
+
+        self.logger.metric("Observations", f"{stats['observations']:,}")
+        self.logger.metric("Trending", f"{stats['trending']:,}")
+        self.logger.metric("Ranging", f"{stats['ranging']:,}")
+
+        self.logger.success("Statistics complete")
+
+        return {
+            **stats,
+            "statistics_status": "complete",
+        }
+
+    # ---- Step 4: Distribution ----
+    def _distribution(self) -> Dict[str, Any]:
+
+        self.logger.info("Step 4: Distribution")
+
+        counts = self.market_state.value_counts().sort_index()
+        total = counts.sum()
+
+        distribution = pd.DataFrame({
+            "state": ["Ranging", "Trending"],
+            "count": [
+                int(counts.get(0, 0)),
+                int(counts.get(1, 0)),
+            ],
+            "percentage": [
+                counts.get(0, 0) / total * 100 if total > 0 else 0,
+                counts.get(1, 0) / total * 100 if total > 0 else 0,
+            ],
+        })
+
+        self.result.artifacts["market_state_distribution"] = distribution
+
+        self.logger.success("Distribution complete")
+
+        return {"distribution_status": "complete"}
+
+    # ---- Step 5: Export ----
+    def _export(self) -> Dict[str, Any]:
+
+        self.logger.info("Step 5: Export")
+
+        exported = len(self.result.artifacts)
+
+        self.logger.metric("Artifacts", f"{exported}")
+
+        for name, artifact in self.result.artifacts.items():
+            if hasattr(artifact, "__len__"):
+                self.logger.info(f"  {name}: {len(artifact)} rows")
+
+        self.logger.success("Export complete")
+
+        return {
+            "artifact_count": exported,
+            "export_status": "complete",
+        }
+
+    def compute(self) -> Dict[str, Any]:
+
+        self.logger.section("Market State Pipeline")
+        self.logger.info("Executing pipeline")
+
+        results = self.execute_pipeline()
+        self.result.status = "completed"
+        self.logger.success("Module 022 complete")
+
+        return results
+
+    def run(self, filepath: str, output_dir=None):
+        return super().run(filepath, output_dir)
+
+    def run_dataframe(self, df, dataset_id="in_memory", output_dir=None):
+        return super().run_dataframe(df, dataset_id, output_dir)

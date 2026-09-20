@@ -1,0 +1,100 @@
+# atlas/modules/module022_market_state/test_module.py
+"""
+Module 022 Test Runner
+"""
+
+import sys
+from pathlib import Path
+import numpy as np
+import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
+
+from atlas.modules.module022_market_state.module import MarketStateResearch
+
+
+def test_pipeline():
+
+    print("\n" + "=" * 60)
+    print("TEST: Market State Pipeline")
+    print("=" * 60)
+
+    n = 500
+    np.random.seed(42)
+    close = np.cumsum(np.random.randn(n)) + 100
+    close = np.maximum(close, 1)
+
+    dates = pd.date_range(start="2020-01-01", periods=n, freq="15min")
+    df = pd.DataFrame({
+        "timestamp": dates,
+        "open": close * 0.999,
+        "high": close * 1.002,
+        "low": close * 0.998,
+        "close": close,
+        "volume": np.ones(n) * 100
+    })
+
+    research = MarketStateResearch()
+    result = research.run_dataframe(df, dataset_id="pipeline_test")
+
+    stats = result.statistics
+    artifacts = result.artifacts
+
+    results = {
+        "Completed": result.status == "completed",
+        "Classification complete": stats.get("classification_status") == "complete",
+        "Transitions complete": stats.get("transition_status") == "complete",
+        "Statistics complete": stats.get("statistics_status") == "complete",
+        "Distribution complete": stats.get("distribution_status") == "complete",
+        "Export complete": stats.get("export_status") == "complete",
+        "Market state artifact": "market_state" in artifacts,
+        "State transitions artifact": "state_transitions" in artifacts,
+        "Market state statistics artifact": "market_state_statistics" in artifacts,
+        "Market state distribution artifact": "market_state_distribution" in artifacts,
+    }
+
+    for label, passed in results.items():
+        print(f"  {'✓' if passed else '✗'} {label}")
+
+    checks = sum(results.values())
+    total = len(results)
+
+    trending = stats.get("trending", 0)
+    ranging = stats.get("ranging", 0)
+    transitions = stats.get("transition_count", 0)
+    observations = stats.get("observations", 0)
+
+    print(f"\n  Observations: {observations:,}")
+    print(f"  Trending: {trending:,}")
+    print(f"  Ranging: {ranging:,}")
+    print(f"  Transitions: {transitions:,}")
+
+    print(f"\n  Pipeline: {checks}/{total} passed")
+    return checks == total
+
+
+def main():
+
+    print("\n" + "=" * 70)
+    print("PROJECT ATLAS - MODULE 022 TEST")
+    print("Market State")
+    print("=" * 70)
+
+    success = test_pipeline()
+
+    print("\n" + "=" * 70)
+    print("SUMMARY")
+    print("=" * 70)
+
+    if success:
+        print("\n✓ Module 022 VALIDATED")
+        print("✓ All pipeline steps return consistent status")
+        print("✓ All artifacts exported")
+        return 0
+    else:
+        print("\n⚠ Some tests failed")
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
