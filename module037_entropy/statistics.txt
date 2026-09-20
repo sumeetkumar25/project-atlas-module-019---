@@ -1,0 +1,96 @@
+# atlas/modules/module037_entropy/statistics.py
+"""
+Module 037 - Entropy Statistics
+
+Classifies entropy levels into interpretable regimes.
+
+FIXED: Stores both total bins and non-zero (populated) bins.
+"""
+
+from dataclasses import dataclass, asdict
+
+import numpy as np
+import pandas as pd
+
+from .engine import EntropyResult
+
+
+@dataclass
+class EntropyStatistics:
+    sample_size: int
+    entropy: float
+    normalized_entropy: float
+    maximum_entropy: float
+
+    series_type: str = "unknown"
+
+    regime: str = "Unknown"
+    regime_detail: str = ""
+
+    num_bins: int = 0
+    num_nonzero_bins: int = 0
+
+
+class EntropyStatisticsEngine:
+
+    METADATA = {
+        "module": 37,
+        "name": "Shannon Entropy",
+        "version": "1.0.0",
+        "method": "Freedman-Diaconis adaptive binning",
+    }
+
+    def analyze(self, result: EntropyResult) -> EntropyStatistics:
+
+        ne = result.normalized_entropy
+
+        if ne > 0.95:
+            regime = "Extremely Random"
+            regime_detail = "Returns are nearly unpredictable; distribution is close to uniform"
+        elif ne > 0.85:
+            regime = "Highly Random"
+            regime_detail = "Returns have high uncertainty with slight structure"
+        elif ne > 0.70:
+            regime = "Moderate Structure"
+            regime_detail = "Returns show moderate predictability"
+        elif ne > 0.50:
+            regime = "Structured"
+            regime_detail = "Returns have significant distributional structure"
+        else:
+            regime = "Highly Structured"
+            regime_detail = "Returns are concentrated in few states; highly predictable distribution"
+
+        return EntropyStatistics(
+            sample_size=result.sample_size,
+            entropy=result.entropy,
+            normalized_entropy=result.normalized_entropy,
+            maximum_entropy=result.max_entropy,
+            series_type=result.series_type,
+            regime=regime,
+            regime_detail=regime_detail,
+            num_bins=len(result.probabilities),
+            num_nonzero_bins=int(np.count_nonzero(result.probabilities)),
+        )
+
+    def summary_dataframe(self, stats: EntropyStatistics) -> pd.DataFrame:
+        return pd.DataFrame([asdict(stats)])
+
+    def summary_dict(self, stats: EntropyStatistics) -> dict:
+        return asdict(stats)
+
+    @staticmethod
+    def cross_dataset_metrics(all_stats: list) -> pd.DataFrame:
+        """Generate cross-dataset comparison metrics."""
+        rows = []
+        for name, stats in all_stats:
+            rows.append({
+                "dataset": name,
+                "series_type": stats.series_type,
+                "sample_size": stats.sample_size,
+                "entropy": round(stats.entropy, 4),
+                "normalized_entropy": round(stats.normalized_entropy, 4),
+                "regime": stats.regime,
+                "num_bins": stats.num_bins,
+                "num_nonzero_bins": stats.num_nonzero_bins,
+            })
+        return pd.DataFrame(rows)

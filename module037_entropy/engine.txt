@@ -1,0 +1,104 @@
+# atlas/modules/module037_entropy/engine.py
+"""
+Module 037 - Entropy Engine
+
+Measures information content in BTC returns using Shannon entropy.
+
+H = -Σ p_i × log2(p_i)
+
+Maximum entropy = uniform distribution (unpredictable).
+Minimum entropy = concentrated distribution (predictable).
+
+FIXED: Preserves full histogram information. Zero-probability bins
+       are kept in the output for consistent array lengths.
+"""
+
+from dataclasses import dataclass
+
+import numpy as np
+
+
+# ----------------------------------------------------
+# Result Container
+# ----------------------------------------------------
+
+@dataclass
+class EntropyResult:
+    sample_size: int
+    entropy: float
+    normalized_entropy: float
+    max_entropy: float
+    probabilities: np.ndarray
+    bin_edges: np.ndarray
+    series_type: str = "unknown"
+
+
+# ----------------------------------------------------
+# Entropy Engine
+# ----------------------------------------------------
+
+class EntropyEngine:
+
+    def __init__(self, bins: str = "fd"):
+        """
+        Initialize entropy engine.
+        
+        Args:
+            bins: Histogram binning method. Default "fd" (Freedman-Diaconis)
+                  which adapts automatically to the data distribution.
+        """
+        self.bins = bins
+
+    def compute(self, series, series_type: str = "unknown") -> EntropyResult:
+        """
+        Compute Shannon entropy of a time series.
+        
+        Preserves full histogram: probabilities array has same length
+        as (bin_edges - 1), including zero-probability bins.
+        Entropy is computed only on non-zero bins.
+        
+        Args:
+            series: Time series data (typically returns)
+            series_type: Label describing what was analyzed
+            
+        Returns:
+            EntropyResult with entropy, normalized entropy, and full bin data
+        """
+        # Clean input
+        series = np.asarray(series, dtype=float)
+        series = series[np.isfinite(series)]
+        n = len(series)
+
+        if n < 200:
+            raise ValueError(
+                f"Need at least 200 observations for reliable entropy, got {n}"
+            )
+
+        # Histogram with adaptive binning
+        counts, edges = np.histogram(series, bins=self.bins)
+
+        # Full probability array (preserves zero bins)
+        probabilities = counts / counts.sum()
+
+        # Compute entropy only on non-zero bins
+        nonzero = probabilities > 0
+
+        entropy = -np.sum(
+            probabilities[nonzero] * np.log2(probabilities[nonzero])
+        )
+
+        # Maximum entropy based on populated bins
+        max_entropy = np.log2(nonzero.sum())
+
+        # Normalized entropy [0, 1]
+        normalized = entropy / max_entropy if max_entropy > 0 else 0.0
+
+        return EntropyResult(
+            sample_size=n,
+            entropy=float(entropy),
+            normalized_entropy=float(normalized),
+            max_entropy=float(max_entropy),
+            probabilities=probabilities,
+            bin_edges=edges,
+            series_type=series_type,
+        )

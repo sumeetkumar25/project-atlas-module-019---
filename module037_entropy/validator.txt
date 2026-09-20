@@ -1,0 +1,87 @@
+# atlas/modules/module037_entropy/validator.py
+"""
+Module 037 - Entropy Validator
+"""
+
+import numpy as np
+
+from .engine import EntropyResult
+from .statistics import EntropyStatistics
+
+
+class EntropyValidator:
+
+    def validate(
+        self,
+        result: EntropyResult,
+        statistics: EntropyStatistics,
+    ) -> bool:
+
+        issues = []
+
+        if result.sample_size < 200:
+            issues.append(f"Sample size too small: {result.sample_size}")
+
+        if not np.isfinite(result.entropy):
+            issues.append(f"Entropy is not finite: {result.entropy}")
+
+        if not np.isfinite(result.normalized_entropy):
+            issues.append(f"Normalized entropy is not finite: {result.normalized_entropy}")
+
+        if not (0.0 <= result.normalized_entropy <= 1.0 + 1e-10):
+            issues.append(
+                f"Normalized entropy out of [0,1]: {result.normalized_entropy:.6f}"
+            )
+
+        if not np.isclose(result.probabilities.sum(), 1.0, atol=1e-8):
+            issues.append(
+                f"Probabilities sum to {result.probabilities.sum():.10f}, expected 1.0"
+            )
+
+        if np.isnan(result.probabilities).any():
+            issues.append("Probabilities contain NaN")
+
+        if len(result.probabilities) < 5:
+            issues.append(f"Too few bins: {len(result.probabilities)} (minimum 5)")
+
+        if not result.series_type or result.series_type == "unknown":
+            issues.append("Series type not specified")
+
+        if not np.isclose(statistics.entropy, result.entropy, atol=1e-10):
+            issues.append("Entropy mismatch")
+
+        if not np.isclose(statistics.normalized_entropy, result.normalized_entropy, atol=1e-10):
+            issues.append("Normalized entropy mismatch")
+
+        if statistics.num_bins != len(result.probabilities):
+            issues.append("Bin count mismatch")
+
+        if statistics.series_type != result.series_type:
+            issues.append("Series type mismatch")
+
+        if issues:
+            raise ValueError(
+                f"Entropy validation failed with {len(issues)} issue(s):\n" +
+                "\n".join(f"  - {issue}" for issue in issues)
+            )
+
+        return True
+
+
+def run_validation(result, statistics):
+    """Run validation and print results."""
+    validator = EntropyValidator()
+
+    print("\n" + "=" * 60)
+    print("ENTROPY VALIDATION")
+    print("=" * 60)
+
+    try:
+        validator.validate(result, statistics)
+        print("\n  ✓ All validation checks passed")
+        print("=" * 60)
+        return True
+    except ValueError as e:
+        print(e)
+        print("=" * 60)
+        return False

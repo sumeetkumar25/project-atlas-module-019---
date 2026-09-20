@@ -1,0 +1,9 @@
+# atlas/modules/module037_entropy/__init__.py
+"""
+Module 037
+Shannon Entropy Analysis
+"""
+
+from .module import EntropyResearch
+
+__all__ = ["EntropyResearch"]

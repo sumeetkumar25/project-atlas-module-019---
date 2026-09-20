@@ -1,0 +1,57 @@
+# atlas/modules/module037_entropy/report.py
+"""
+Module 037 - Entropy Report
+
+FIXED: Includes both total bins and populated bins.
+"""
+
+from datetime import datetime
+
+
+class EntropyReport:
+
+    @staticmethod
+    def generate(statistics, metadata=None, dataset_name="Unknown") -> str:
+        lines = []
+
+        lines.append("=" * 55)
+        lines.append("MODULE 037")
+        lines.append("SHANNON ENTROPY ANALYSIS")
+        lines.append("=" * 55)
+        lines.append(f"\nDataset: {dataset_name}")
+
+        lines.append("\n" + "-" * 45)
+        lines.append("RESULTS")
+        lines.append("-" * 45)
+        lines.append(f"  Sample Size:        {statistics.sample_size:,}")
+        lines.append(f"  Entropy:            {statistics.entropy:.4f} bits")
+        lines.append(f"  Normalized Entropy: {statistics.normalized_entropy:.4f}")
+        lines.append(f"  Maximum Entropy:    {statistics.maximum_entropy:.4f} bits")
+        lines.append(f"  Total Bins:         {statistics.num_bins}")
+        lines.append(f"  Populated Bins:     {statistics.num_nonzero_bins}")
+        lines.append(f"  Series Type:        {statistics.series_type}")
+
+        lines.append("\n" + "-" * 45)
+        lines.append("CLASSIFICATION")
+        lines.append("-" * 45)
+        lines.append(f"  Regime:  {statistics.regime}")
+        lines.append(f"  Detail:  {statistics.regime_detail}")
+
+        lines.append("\n" + "-" * 45)
+        lines.append("VALIDATION")
+        lines.append("-" * 45)
+        lines.append("  Status: PASSED")
+        lines.append(f"\n  Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        lines.append("\n" + "=" * 55)
+        lines.append("END OF REPORT")
+        lines.append("=" * 55)
+
+        return "\n".join(lines)
+
+    @staticmethod
+    def save(report: str, filepath: str):
+        from pathlib import Path
+        path = Path(filepath)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(report)

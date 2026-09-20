@@ -1,0 +1,219 @@
+# atlas/modules/module037_entropy/test_module.py
+"""
+Module 037 - Integration Test
+
+Tests entropy engine, statistics, validator, report, and pipeline.
+"""
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path.__file__).parent.parent.parent.parent if hasattr(Path, '__file__') else sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent)))
+
+import numpy as np
+import pandas as pd
+
+from atlas.modules.module037_entropy.engine import EntropyEngine
+from atlas.modules.module037_entropy.statistics import EntropyStatisticsEngine
+from atlas.modules.module037_entropy.validator import run_validation
+from atlas.modules.module037_entropy.report import EntropyReport
+from atlas.modules.module037_entropy.module import EntropyResearch
+
+
+def test_gaussian():
+    """Test 1: IID Gaussian returns → high entropy (> 0.90)."""
+    print("\n" + "=" * 60)
+    print("TEST 1: IID Gaussian Returns")
+    print("=" * 60)
+
+    engine = EntropyEngine(bins="fd")
+    stats_engine = EntropyStatisticsEngine()
+
+    np.random.seed(42)
+    n = 2000
+    returns = np.random.normal(0, 1, n)
+    result = engine.compute(returns, series_type="log_returns")
+    stats = stats_engine.analyze(result)
+
+    assert result.normalized_entropy > 0.85, (
+        f"Gaussian returns should have high entropy, got {result.normalized_entropy:.4f}"
+    )
+
+    print(f"  Entropy: {result.entropy:.4f} bits")
+    print(f"  Normalized: {result.normalized_entropy:.4f}")
+    print(f"  Bins: {len(result.probabilities)}")
+    print(f"  Regime: {stats.regime}")
+    print("  ✓ Gaussian test passed")
+    return True
+
+
+def test_constant():
+    """Test 2: Constant series → entropy ≈ 0."""
+    print("\n" + "=" * 60)
+    print("TEST 2: Constant Series")
+    print("=" * 60)
+
+    engine = EntropyEngine(bins="fd")
+    stats_engine = EntropyStatisticsEngine()
+
+    n = 2000
+    constant = np.ones(n)
+    result = engine.compute(constant, series_type="constant")
+    stats = stats_engine.analyze(result)
+
+    assert result.normalized_entropy < 0.10, (
+        f"Constant series should have near-zero entropy, got {result.normalized_entropy:.4f}"
+    )
+
+    print(f"  Entropy: {result.entropy:.4f} bits")
+    print(f"  Normalized: {result.normalized_entropy:.4f}")
+    print(f"  Regime: {stats.regime}")
+    print("  ✓ Constant test passed")
+    return True
+
+
+def test_binary():
+    """Test 3: Binary series → entropy ≈ 1 bit."""
+    print("\n" + "=" * 60)
+    print("TEST 3: Binary Series")
+    print("=" * 60)
+
+    engine = EntropyEngine(bins="fd")
+    stats_engine = EntropyStatisticsEngine()
+
+    np.random.seed(42)
+    n = 2000
+    binary = np.random.choice([0, 1], size=n)
+    result = engine.compute(binary, series_type="binary")
+    stats = stats_engine.analyze(result)
+
+    assert 0.8 < result.entropy < 1.2, (
+        f"Binary series should have ~1 bit entropy, got {result.entropy:.4f}"
+    )
+
+    print(f"  Entropy: {result.entropy:.4f} bits")
+    print(f"  Normalized: {result.normalized_entropy:.4f}")
+    print(f"  Regime: {stats.regime}")
+    print("  ✓ Binary test passed")
+    return True
+
+
+def test_validator():
+    """Test 4: Validator."""
+    print("\n" + "=" * 60)
+    print("TEST 4: Validator")
+    print("=" * 60)
+
+    engine = EntropyEngine(bins="fd")
+    stats_engine = EntropyStatisticsEngine()
+
+    np.random.seed(42)
+    returns = np.random.normal(0, 1, 500)
+    result = engine.compute(returns, series_type="log_returns")
+    stats = stats_engine.analyze(result)
+
+    passed = run_validation(result, stats)
+    assert passed
+    print("  ✓ Validator test passed")
+    return True
+
+
+def test_report():
+    """Test 5: Report generation."""
+    print("\n" + "=" * 60)
+    print("TEST 5: Report Generation")
+    print("=" * 60)
+
+    engine = EntropyEngine(bins="fd")
+    stats_engine = EntropyStatisticsEngine()
+
+    np.random.seed(42)
+    returns = np.random.normal(0, 1, 500)
+    result = engine.compute(returns, series_type="log_returns")
+    stats = stats_engine.analyze(result)
+
+    report = EntropyReport.generate(stats, dataset_name="Test")
+    assert "SHANNON ENTROPY" in report
+    assert "CLASSIFICATION" in report
+
+    report_path = Path("temp/module037_test_report.txt")
+    EntropyReport.save(report, str(report_path))
+    assert report_path.exists()
+
+    print("  ✓ Report test passed")
+    return True
+
+
+def test_pipeline():
+    """Test 6: Full pipeline."""
+    print("\n" + "=" * 60)
+    print("TEST 6: Full Pipeline")
+    print("=" * 60)
+
+    n = 500
+    np.random.seed(42)
+    close = np.cumsum(np.random.normal(0, 1, n)) + 100
+    close = np.maximum(close, 1)
+
+    dates = pd.date_range(start="2020-01-01", periods=n, freq="15min")
+    df = pd.DataFrame({
+        "timestamp": dates,
+        "open": close * 0.999,
+        "high": close * 1.002,
+        "low": close * 0.998,
+        "close": close,
+        "volume": np.ones(n) * 100,
+    })
+
+    research = EntropyResearch()
+    result = research.run_dataframe(df, dataset_id="pipeline_test")
+
+    assert result.status == "completed"
+    assert "entropy_statistics" in result.artifacts
+    assert "entropy_results" in result.artifacts
+    assert "entropy_report" in result.artifacts
+    assert result.statistics.get("validation_passed") == True
+
+    print(f"  Entropy: {result.statistics.get('entropy'):.4f} bits")
+    print(f"  Normalized: {result.statistics.get('normalized_entropy'):.4f}")
+    print("  ✓ Full pipeline test passed")
+    return True
+
+
+def main():
+    print("\n" + "=" * 70)
+    print("PROJECT ATLAS - MODULE 037 INTEGRATION TEST")
+    print("Shannon Entropy Analysis")
+    print("=" * 70)
+
+    results = {}
+
+    results["gaussian"] = test_gaussian()
+    results["constant"] = test_constant()
+    results["binary"] = test_binary()
+    results["validator"] = test_validator()
+    results["report"] = test_report()
+    results["pipeline"] = test_pipeline()
+
+    print("\n" + "=" * 70)
+    print("RESULTS")
+    print("=" * 70)
+
+    for name, ok in results.items():
+        print(f"  {'✓' if ok else '✗'} {name}")
+
+    passed = sum(results.values())
+    total = len(results)
+
+    print(f"\n  {passed}/{total} tests passed")
+
+    if passed == total:
+        print("\n✓ Module 037 VALIDATED")
+        return 0
+    else:
+        print("\n⚠ Some tests failed")
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

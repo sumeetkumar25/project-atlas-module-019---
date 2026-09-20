@@ -1,0 +1,1 @@
+python -m atlas.modules.module037_entropy.test_module
